@@ -6,6 +6,8 @@ The goal of this application is to yield a similar grade of transparency for poi
 
 We seek to achieve this transparency by drawing a heatmap of important points from the input pointcloud in order to be able to identify the areas of interest for the underlying neuronal network. This should yield a visual representation of the important areas that were responsible for the predicion result of the network. The pointcloud data is then visualized using the Open3D[[4]] library.
 
+![Test_1](https://user-images.githubusercontent.com/19975052/58369593-e88e2980-7efc-11e9-91a1-8f2d6b372f58.PNG)
+
 ## Installation
 
 In order to clone this repository with all submodules, run the command:
