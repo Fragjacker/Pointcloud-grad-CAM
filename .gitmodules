@@ -1,3 +1,0 @@
-[submodule "pointnet"]
-	path = pointnet
-	url = https://github.com/charlesq34/pointnet.git
