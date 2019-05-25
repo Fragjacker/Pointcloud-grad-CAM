@@ -10,10 +10,6 @@ We seek to achieve this transparency by drawing a heatmap of important points fr
 
 ## Installation
 
-In order to clone this repository with all submodules, run the command:
-
-`$git clone --recurse-submodules https://github.com/Fragjacker/Master-Thesis--Pointcloud-grad-CAM`
-
 To run the the code Python 3.X.X is required. Our code also requires the Open3D[[4]] library as well. You can install it with Anaconda (recommended) or pip with the following commands:
 
 `pip3 install open3d`
