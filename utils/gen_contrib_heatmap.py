@@ -28,7 +28,8 @@ def count_occurance(inputArr):
     
 def draw_heatcloud(inpCloud, hitCheckArr):
     pColors = np.zeros((1024,3),dtype=float)
-    maxColVal = hitCheckArr[max(hitCheckArr.items(), key=operator.itemgetter(1))[0]]
+#     maxColVal = hitCheckArr[max(hitCheckArr.items(), key=operator.itemgetter(1))[0]]
+    maxColVal = max(hitCheckArr)
     print('maxColVal: %s' % maxColVal)
     for index in range(len(inpCloud[0])):
         try:

@@ -15,6 +15,72 @@ import provider
 import tf_util
 import gen_contrib_heatmap as gch
 
+#===============================================================================
+# Global variables to control program behavior
+#===============================================================================
+usePreviousSession = True   #--Set this to true to use a previously trained model.
+performTraining = False     #--Set this to true to train the model. Set to false to only test the pretrained model.
+
+#===============================================================================
+# Help Functions
+#===============================================================================
+
+'''
+This function computes a the necessary weight gradient for the point clouds
+in order to color the points according to their assigned weights.
+
+:param class_activation_vector: The class activation vector (Is of dimension [<batch_size>,40]).
+:param feature_vector: The feature vector before the max pooling operation.
+:param index: The desired class that the heatmap should be computed for
+'''
+def computeHeatGradient(class_activation_vector, feature_vector, classIndex):
+    # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
+    class_activation_vector = tf.tensordot(class_activation_vector, tf.one_hot(indices=classIndex, depth=40),axes=[[1],[0]])
+    
+    # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
+    gradients = tf.gradients(ys=class_activation_vector, xs=feature_vector)
+    
+    # Average pooling of the weights over all batches
+    gradients = tf.reduce_mean(gradients, axis=[0, 1, 2])
+    
+    # Multiply with original pre maxpool feature vector to get weights
+    gradients = tf.tensordot(feature_vector, gradients, axes=[[3], [1]])
+    
+    # ReLU out the negative values
+    gradients = tf.maximum(gradients, 0)
+    
+    # Reduce down to a simple array for further processing.
+    gradients = tf.squeeze(gradients, axis=[0, 2, 3])
+    return gradients
+
+def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients):
+    if gradients is None:
+        ops = {'pointclouds_pl':pointclouds_pl, 
+            'labels_pl':labels_pl, 
+            'is_training_pl':is_training_pl, 
+            'pred':pred, 
+            'loss':loss, 
+            'train_op':train_op, 
+            'merged':merged, 
+            'step':batch, 
+            'maxpool_out':maxpool_out,
+            'feature_vec':feature_vec}
+    else:
+        ops = {'pointclouds_pl':pointclouds_pl, 
+            'labels_pl':labels_pl, 
+            'is_training_pl':is_training_pl, 
+            'pred':pred, 
+            'loss':loss, 
+            'train_op':train_op, 
+            'merged':merged, 
+            'step':batch, 
+            'maxpool_out':maxpool_out, 
+            'feature_vec':feature_vec, 
+            'gradients':gradients}
+    return ops
+
+#------------------------------------------------------------------------------ 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls', help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
@@ -110,14 +176,14 @@ def train():
             tf.summary.scalar('bn_decay', bn_decay)
 
             # Get model and loss 
-            pred, end_points, maxpool_out = MODEL.get_model(pointclouds_pl, is_training_pl, bn_decay=bn_decay)
+            pred, end_points, maxpool_out, feature_vec = MODEL.get_model(pointclouds_pl, is_training_pl, bn_decay=bn_decay)
             loss = MODEL.get_loss(pred, labels_pl, end_points)
             tf.summary.scalar('loss', loss)
 
             correct = tf.equal(tf.argmax(pred, 1), tf.to_int64(labels_pl))
             accuracy = tf.reduce_sum(tf.cast(correct, tf.float32)) / float(BATCH_SIZE)
             tf.summary.scalar('accuracy', accuracy)
-
+            
             # Get training operator
             learning_rate = get_learning_rate(batch)
             tf.summary.scalar('learning_rate', learning_rate)
@@ -150,30 +216,41 @@ def train():
         # http://stackoverflow.com/questions/41543774/invalidargumenterror-for-tensor-bool-tensorflow-0-12-1
         #sess.run(init)
         sess.run(init, {is_training_pl: True})
-
-        ops = {'pointclouds_pl': pointclouds_pl,
-               'labels_pl': labels_pl,
-               'is_training_pl': is_training_pl,
-               'pred': pred,
-               'loss': loss,
-               'train_op': train_op,
-               'merged': merged,
-               'step': batch,
-               'maxpool_out': maxpool_out}
-
-        for epoch in range(MAX_EPOCH):
-            log_string('**** EPOCH %03d ****' % (epoch))
-            sys.stdout.flush()
-             
-            train_one_epoch(sess, ops, train_writer)
-            eval_one_epoch(sess, ops, test_writer)
+        
+        # --Reload pretrained model
+        if usePreviousSession:
+            trained_model = os.path.join(LOG_DIR, "model.ckpt")
+            saver.restore(sess, trained_model)
+            print("Model restored.")
             
-            # Save the variables to disk.
-            if epoch % 10 == 0:
-                save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
-                log_string("Model saved in file: %s" % save_path)
+        # --Compute gradients only when evaluating the model.
+        if not performTraining:
+            gradients = computeHeatGradient(pred, feature_vec, classIndex=4)
+        else:
+            gradients = None
 
+        # --Get proper Ops according to if we want to compute gradients or not.
+        ops = getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients)
+        
+        if performTraining:
+            for epoch in range(MAX_EPOCH):
+                log_string('**** TRAINING EPOCH %03d ****' % (epoch))
+                sys.stdout.flush()
+                train_one_epoch(sess, ops, train_writer)
+            
+#                 log_string('**** TESTING EPOCH %03d ****' % (epoch))
+#                 sys.stdout.flush()
+#                 eval_one_epoch(sess, ops, test_writer)
+                
+                # Save the variables to disk.
+                if epoch % 10 == 0:
+                    save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
+                    log_string("Model saved in file: %s" % save_path)
 
+        if not performTraining:
+            log_string('**** TESTING MODEL ****')
+            sys.stdout.flush()
+            eval_one_epoch(sess, ops, test_writer)
 
 def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
@@ -184,7 +261,7 @@ def train_one_epoch(sess, ops, train_writer):
     np.random.shuffle(train_file_idxs)
     
     for fn in range(len(TRAIN_FILES)):
-        log_string('----' + str(fn) + '-----')
+        log_string('----Training ' + str(fn) + '-----')
         current_data, current_label = provider.loadDataFile(TRAIN_FILES[train_file_idxs[fn]])
         current_data = current_data[:,0:NUM_POINT,:]
         current_data, current_label, _ = provider.shuffle_data(current_data, np.squeeze(current_label))            
@@ -207,27 +284,14 @@ def train_one_epoch(sess, ops, train_writer):
             feed_dict = {ops['pointclouds_pl']: jittered_data,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training,}
-            summary, step, _, loss_val, pred_val, maxpool_out = sess.run([ops['merged'], ops['step'],
-                ops['train_op'], ops['loss'], ops['pred'], ops['maxpool_out']], feed_dict=feed_dict)
+            summary, step, _, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
+                ops['train_op'], ops['loss'], ops['pred']], feed_dict=feed_dict)
             train_writer.add_summary(summary, step)
             pred_val = np.argmax(pred_val, 1)
             correct = np.sum(pred_val == current_label[start_idx:end_idx])
             total_correct += correct
             total_seen += BATCH_SIZE
             loss_sum += loss_val
-        
-        log_string('mean loss: %f' % (loss_sum / float(num_batches)))
-        log_string('accuracy: %f' % (total_correct / float(total_seen)))
-#         log_string('Max Pooling Array:')
-#         print(maxpool_out)
-#         log_string('Contributing vector indices:')
-#         gch.list_contrib_vectors(maxpool_out)
-#         log_string('Contributing vector index count:')
-#         occArr = gch.count_occurance(maxpool_out)
-#         log_string('Point cloud data:')
-#         print(jittered_data)
-#         gch.draw_heatcloud(jittered_data, occArr)
-
         
 def eval_one_epoch(sess, ops, test_writer):
     """ ops: dict mapping from string to tf ops """
@@ -237,9 +301,11 @@ def eval_one_epoch(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
+    class_output_vector = np.zeros([1,40])
+    class_output_vector[0][4] = 1
     
     for fn in range(len(TEST_FILES)):
-        log_string('----' + str(fn) + '-----')
+        log_string('----Testsample ' + str(fn) + '-----')
         current_data, current_label = provider.loadDataFile(TEST_FILES[fn])
         current_data = current_data[:,0:NUM_POINT,:]
         current_label = np.squeeze(current_label)
@@ -254,8 +320,8 @@ def eval_one_epoch(sess, ops, test_writer):
             feed_dict = {ops['pointclouds_pl']: current_data[start_idx:end_idx, :, :],
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
-            summary, step, loss_val, pred_val, maxpool_out = sess.run([ops['merged'], ops['step'],
-                ops['loss'], ops['pred'], ops['maxpool_out']], feed_dict=feed_dict)
+            summary, step, loss_val, pred_val, maxpool_out, gradients = sess.run([ops['merged'], ops['step'],
+                ops['loss'], ops['pred'], ops['maxpool_out'],ops['gradients']], feed_dict=feed_dict)
             pred_val = np.argmax(pred_val, 1)
             correct = np.sum(pred_val == current_label[start_idx:end_idx])
             total_correct += correct
@@ -265,16 +331,18 @@ def eval_one_epoch(sess, ops, test_writer):
                 l = current_label[i]
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
-                
-        log_string('Max Pooling Array:')
-        print(maxpool_out)
-        log_string('Contributing vector indices:')
-        gch.list_contrib_vectors(maxpool_out)
-        log_string('Contributing vector index count:')
-        occArr = gch.count_occurance(maxpool_out)
-        log_string('Point cloud data:')
-        print(current_data)
-        gch.draw_heatcloud(current_data, occArr)
+        
+        
+        log_string('Gradients')
+        print(gradients)
+#         log_string('Max Pooling Array:')
+#         print(maxpool_out)
+#         log_string('Contributing vector indices:')
+#         gch.list_contrib_vectors(maxpool_out)
+#         log_string('Contributing vector index count:')
+#         occArr = gch.count_occurance(maxpool_out)
+        gch.draw_heatcloud(current_data, gradients)
+#         sys.exit()
             
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
@@ -284,3 +352,5 @@ def eval_one_epoch(sess, ops, test_writer):
 if __name__ == "__main__":
     train()
     LOG_FOUT.close()
+
+
