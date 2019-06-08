@@ -39,18 +39,21 @@ def computeHeatGradient(class_activation_vector, feature_vector, classIndex):
     
     # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
     gradients = tf.gradients(ys=class_activation_vector, xs=feature_vector)
-    
+    gradients = tf.squeeze(gradients, axis=[0,1,3])
+
     # Average pooling of the weights over all batches
-    gradients = tf.reduce_mean(gradients, axis=[0, 1, 2])
-    
+    gradients = tf.reduce_mean(gradients, axis=1)
+
     # Multiply with original pre maxpool feature vector to get weights
-    gradients = tf.tensordot(feature_vector, gradients, axes=[[3], [1]])
+    feature_vector = tf.squeeze(feature_vector,axis=[0,2])  # Remove empty dimensions of the feature vector so we get [batch_size,1024]
+    multiply = tf.constant(feature_vector[1].get_shape().as_list())
+    multMatrix = tf.reshape(tf.tile(gradients, multiply), [ multiply[0], gradients.get_shape().as_list()[0]])   # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
+    gradients = tf.matmul(feature_vector, multMatrix)   # Multiply [batch_size, 1024] x [1024, batch_size]
+    gradients = tf.diag_part(gradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
     
     # ReLU out the negative values
     gradients = tf.maximum(gradients, 0)
     
-    # Reduce down to a simple array for further processing.
-    gradients = tf.squeeze(gradients, axis=[0, 2, 3])
     return gradients
 
 def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients):
@@ -225,7 +228,7 @@ def train():
             
         # --Compute gradients only when evaluating the model.
         if not performTraining:
-            gradients = computeHeatGradient(pred, feature_vec, classIndex=4)
+            gradients = computeHeatGradient(pred, feature_vec, classIndex=0)
         else:
             gradients = None
 
