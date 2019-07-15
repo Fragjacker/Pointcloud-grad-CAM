@@ -20,6 +20,7 @@ import gen_contrib_heatmap as gch
 #===============================================================================
 usePreviousSession = True   #--Set this to true to use a previously trained model.
 performTraining = False     #--Set this to true to train the model. Set to false to only test the pretrained model.
+testLabel = 24             #--The index of the class label the object should be tested against.
 
 #===============================================================================
 # Help Functions
@@ -82,13 +83,21 @@ def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, 
             'gradients':gradients}
     return ops
 
+def getShapeName(index):
+    shapeTXT = open('data\\modelnet40_ply_hdf5_2048\\shape_names.txt', 'r')
+    entry = ''
+    for _ in range(index + 1):
+        entry = shapeTXT.readline()
+    shapeTXT.close()
+    return entry
+
 #------------------------------------------------------------------------------ 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls', help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
-parser.add_argument('--num_point', type=int, default=1024, help='Point Number [256/512/1024/2048] [default: 1024]')
+parser.add_argument('--num_point', type=int, default=2048, help='Point Number [256/512/1024/2048] [default: 1024]')
 parser.add_argument('--max_epoch', type=int, default=250, help='Epoch to run [default: 250]')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during training [default: 32]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
@@ -228,7 +237,7 @@ def train():
             
         # --Compute gradients only when evaluating the model.
         if not performTraining:
-            gradients = computeHeatGradient(pred, feature_vec, classIndex=0)
+            gradients = computeHeatGradient(pred, feature_vec, classIndex=testLabel)
         else:
             gradients = None
 
@@ -304,8 +313,6 @@ def eval_one_epoch(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    class_output_vector = np.zeros([1,40])
-    class_output_vector[0][4] = 1
     
     for fn in range(len(TEST_FILES)):
         log_string('----Testsample ' + str(fn) + '-----')
@@ -335,17 +342,82 @@ def eval_one_epoch(sess, ops, test_writer):
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
         
-        
-        log_string('Gradients')
+        print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
+        print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
         print(gradients)
+        
+        from matplotlib import pyplot as plt
+        
+        average = gch.get_average(gradients)
+        truncGrad = gch.truncate_to_average(gradients)
+         
+#         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
+#         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+#         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#         plt.legend(title='Gradient value plot:')
+#         plt.show()
+        
+#         plt.plot(np.arange(len(gradients)), truncGrad,'C1', label='Truncated gradient')
+#         plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+#         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#         plt.legend(title='Gradient value plot:')
+#         plt.show()
+        
+        plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
+        plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+        plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
+        plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+        plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+        plt.legend(title='Gradient value plot:')
+        plt.show()
+ 
+#         gradient_values = gradients
+#         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
+#         bins2 = [0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001]
+#         bins3 = [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01]
+#         bins4 = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1]
+#         bins5 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
+#         bins6 = [1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
+#         plt.hist(gradient_values, bins1, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+#         plt.hist(gradient_values, bins2, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+#         plt.hist(gradient_values, bins3, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+#         plt.hist(gradient_values, bins4, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+#         plt.hist(gradient_values, bins5, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+#         plt.hist(gradient_values, bins6, histtype='bar', rwidth=0.8)
+#         plt.xlabel('Values')
+#         plt.ylabel('Number of hits')
+#         plt.title('Histogram')
+#         plt.show()
+        
 #         log_string('Max Pooling Array:')
 #         print(maxpool_out)
 #         log_string('Contributing vector indices:')
 #         gch.list_contrib_vectors(maxpool_out)
 #         log_string('Contributing vector index count:')
 #         occArr = gch.count_occurance(maxpool_out)
-        gch.draw_heatcloud(current_data, gradients)
-#         sys.exit()
+        print("start_idx ", start_idx)
+        print("end_idx ", end_idx)
+        gch.draw_heatcloud(current_data[start_idx:end_idx, :, :], gradients)
             
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))

@@ -55,6 +55,7 @@ def get_model(point_cloud, is_training, bn_decay=None):
                          scope='conv5', bn_decay=bn_decay)
 
     # Symmetric function: max pooling
+    feature_vec = net
     maxpool_out = tf.argmax(net, axis=1)
     net = tf_util.max_pool2d(net, [num_point,1],
                              padding='VALID', scope='maxpool')
@@ -71,7 +72,7 @@ def get_model(point_cloud, is_training, bn_decay=None):
                           scope='dp2')
     net = tf_util.fully_connected(net, 40, activation_fn=None, scope='fc3')
 
-    return net, end_points, maxpool_out
+    return net, end_points, maxpool_out, feature_vec
 
 
 def get_loss(pred, label, end_points, reg_weight=0.001):
