@@ -84,10 +84,10 @@ def evaluate(num_votes):
            'pred': pred,
            'loss': loss}
 
-    eval_one_epoch(sess, ops, num_votes)
+    test_rotation_XYZ(sess, ops, num_votes)
 
    
-def eval_one_epoch(sess, ops, num_votes=1, topk=1):
+def test_rotation_XYZ(sess, ops, num_votes=1, topk=1):
     error_cnt = 0
     is_training = False
     total_correct = 0

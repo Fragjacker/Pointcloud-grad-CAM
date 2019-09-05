@@ -14,6 +14,7 @@ sys.path.append(os.path.join(BASE_DIR, 'utils'))
 import provider
 import tf_util
 import gen_contrib_heatmap as gch
+from open3d import *
 
 #===============================================================================
 # Global variables to control program behavior
@@ -21,6 +22,7 @@ import gen_contrib_heatmap as gch
 usePreviousSession = True   #--Set this to true to use a previously trained model.
 performTraining = False     #--Set this to true to train the model. Set to false to only test the pretrained model.
 testLabel = 24             #--The index of the class label the object should be tested against.
+numTestRuns = 2024          #--Amount of tests for the current test label object.
 
 #===============================================================================
 # Help Functions
@@ -84,12 +86,31 @@ def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, 
     return ops
 
 def getShapeName(index):
+    '''
+    This function returns the label index as a string,
+    using the shape_names.txt file for reference.
+    '''
     shapeTXT = open('data\\modelnet40_ply_hdf5_2048\\shape_names.txt', 'r')
     entry = ''
     for _ in range(index + 1):
         entry = shapeTXT.readline()
     shapeTXT.close()
     return entry
+
+def findCorrectLabel(inputLabelArray):
+    '''
+    This function retrieves the correct shape from the
+    test batch that matches the target feature vector.
+    '''
+    result = None
+    compLabel = getShapeName(testLabel)
+    for currentIndex in range(len(inputLabelArray)):
+        curLabel = getShapeName(inputLabelArray[currentIndex:currentIndex+1][0])
+        if curLabel.lower() == compLabel.lower():
+            result = currentIndex
+            break
+    return result
+        
 
 #------------------------------------------------------------------------------ 
 
@@ -244,107 +265,126 @@ def train():
         # --Get proper Ops according to if we want to compute gradients or not.
         ops = getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients)
         
-        if performTraining:
-            for epoch in range(MAX_EPOCH):
-                log_string('**** TRAINING EPOCH %03d ****' % (epoch))
-                sys.stdout.flush()
-                train_one_epoch(sess, ops, train_writer)
+        log_string('**** TESTING MODEL ****')
+        sys.stdout.flush()
+        heatMap, curPointCloud = test_rotation_XYZ(sess, ops, test_writer)
+        sess.close()
+        return heatMap, curPointCloud
             
-#                 log_string('**** TESTING EPOCH %03d ****' % (epoch))
-#                 sys.stdout.flush()
-#                 test_rotation_XYZ(sess, ops, test_writer)
-                
-                # Save the variables to disk.
-                if epoch % 10 == 0:
-                    save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
-                    log_string("Model saved in file: %s" % save_path)
-
-        if not performTraining:
-            log_string('**** TESTING MODEL ****')
-            sys.stdout.flush()
-            test_rotation_XYZ(sess, ops, test_writer)
-
-def train_one_epoch(sess, ops, train_writer):
-    """ ops: dict mapping from string to tf ops """
-    is_training = True
-    
-    # Shuffle train files
-    train_file_idxs = np.arange(0, len(TRAIN_FILES))
-    np.random.shuffle(train_file_idxs)
-    
-    for fn in range(len(TRAIN_FILES)):
-        log_string('----Training ' + str(fn) + '-----')
-        current_data, current_label = provider.loadDataFile(TRAIN_FILES[train_file_idxs[fn]])
-        current_data = current_data[:,0:NUM_POINT,:]
-        current_data, current_label, _ = provider.shuffle_data(current_data, np.squeeze(current_label))            
-        current_label = np.squeeze(current_label)
-        
-        file_size = current_data.shape[0]
-        num_batches = file_size // BATCH_SIZE
-        
-        total_correct = 0
-        total_seen = 0
-        loss_sum = 0
-       
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * BATCH_SIZE
-            end_idx = (batch_idx+1) * BATCH_SIZE
             
-            # Augment batched point clouds by rotation and jittering
-            rotated_data = provider.rotate_point_cloud(current_data[start_idx:end_idx, :, :])
-            jittered_data = provider.jitter_point_cloud(rotated_data)
-            feed_dict = {ops['pointclouds_pl']: jittered_data,
-                         ops['labels_pl']: current_label[start_idx:end_idx],
-                         ops['is_training_pl']: is_training,}
-            summary, step, _, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
-                ops['train_op'], ops['loss'], ops['pred']], feed_dict=feed_dict)
-            train_writer.add_summary(summary, step)
-            pred_val = np.argmax(pred_val, 1)
-            correct = np.sum(pred_val == current_label[start_idx:end_idx])
-            total_correct += correct
-            total_seen += BATCH_SIZE
-            loss_sum += loss_val
+def eval_perturbations(numInputPoints, perturbedData):
+    with tf.Graph().as_default():
+        with tf.device('/gpu:'+str(GPU_INDEX)):
+            pointclouds_pl, labels_pl = MODEL.placeholder_inputs(BATCH_SIZE, numInputPoints)
+            is_training_pl = tf.placeholder(tf.bool, shape=())
+            print(is_training_pl)
+            
+            # Note the global_step=batch parameter to minimize. 
+            # That tells the optimizer to helpfully increment the 'batch' parameter for you every time it trains.
+            batch = tf.Variable(0)
+            bn_decay = get_bn_decay(batch)
+            tf.summary.scalar('bn_decay', bn_decay)
+
+            # Get model and loss 
+            pred, end_points, maxpool_out, feature_vec = MODEL.get_model(pointclouds_pl, is_training_pl, bn_decay=bn_decay)
+            loss = MODEL.get_loss(pred, labels_pl, end_points)
+            tf.summary.scalar('loss', loss)
+
+            correct = tf.equal(tf.argmax(pred, 1), tf.to_int64(labels_pl))
+            accuracy = tf.reduce_sum(tf.cast(correct, tf.float32)) / float(BATCH_SIZE)
+            tf.summary.scalar('accuracy', accuracy)
+            
+            # Get training operator
+            learning_rate = get_learning_rate(batch)
+            tf.summary.scalar('learning_rate', learning_rate)
+            if OPTIMIZER == 'momentum':
+                optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=MOMENTUM)
+            elif OPTIMIZER == 'adam':
+                optimizer = tf.train.AdamOptimizer(learning_rate)
+            train_op = optimizer.minimize(loss, global_step=batch)
+            
+            # Add ops to save and restore all the variables.
+            saver = tf.train.Saver()
+            
+        # Create a session
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        config.allow_soft_placement = True
+        config.log_device_placement = False
+        sess = tf.Session(config=config)
+
+        # Add summary writers
+        #merged = tf.merge_all_summaries()
+        merged = tf.summary.merge_all()
+        train_writer = tf.summary.FileWriter(os.path.join(LOG_DIR, 'train'),
+                                  sess.graph)
+        test_writer = tf.summary.FileWriter(os.path.join(LOG_DIR, 'test'))
+
+        # Init variables
+        init = tf.global_variables_initializer()
+        # To fix the bug introduced in TF 0.12.1 as in
+        # http://stackoverflow.com/questions/41543774/invalidargumenterror-for-tensor-bool-tensorflow-0-12-1
+        #sess.run(init)
+        sess.run(init, {is_training_pl: True})
         
-def test_rotation_XYZ(sess, ops, test_writer):
-    """ ops: dict mapping from string to tf ops """
+        # --Reload pretrained model
+        trained_model = os.path.join(LOG_DIR, "model.ckpt")
+        saver.restore(sess, trained_model)
+        print("Model restored.")
+            
+        # --Compute gradients only when evaluating the model.
+        gradients = computeHeatGradient(pred, feature_vec, classIndex=testLabel)
+
+        # --Get proper Ops according to if we want to compute gradients or not.
+        ops = getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients)
+        
+        log_string('**** TESTING MODEL ****')
+        sys.stdout.flush()
+        test_perturbed_pc(sess, ops, perturbedData)
+        sess.close()
+
+def test_perturbed_pc(sess,ops,perturbedData):
+    total_correct_PDel = 0
+    total_seen_PDel = 0
+    loss_sum_PDel = 0
+    total_seen_class_PDel = [0 for _ in range(NUM_CLASSES)]
+    total_correct_class_PDel = [0 for _ in range(NUM_CLASSES)]
     is_training = False
-    total_correct = 0
-    total_seen = 0
-    loss_sum = 0
-    total_seen_class = [0 for _ in range(NUM_CLASSES)]
-    total_correct_class = [0 for _ in range(NUM_CLASSES)]
     
-    for fn in range(len(TEST_FILES)):
+    for fn in range(1):
         log_string('----Testbatch ' + str(fn) + '-----')
-        current_data, current_label = provider.loadDataFile(TEST_FILES[fn])
-        current_data = current_data[:,0:NUM_POINT,:]
+        _, current_label = provider.loadDataFile(TEST_FILES[fn])
         current_label = np.squeeze(current_label)
+        print("current_label: ", current_label)
         
-        file_size = current_data.shape[0]
-        num_batches = file_size // BATCH_SIZE
+        correctLabel = findCorrectLabel(current_label)
+        batchStart = correctLabel
         
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * BATCH_SIZE
-            end_idx = (batch_idx+1) * BATCH_SIZE
-
-            rotated_data = provider.rotate_point_cloud_XYZ(current_data[start_idx:end_idx, :, :])
-            feed_dict = {ops['pointclouds_pl']: rotated_data,
+        for _ in range(numTestRuns):
+            start_idx = batchStart * BATCH_SIZE
+            end_idx = (batchStart+1) * BATCH_SIZE
+            print("start_idx: ", start_idx)
+            print("end_idx: ", end_idx)
+            
+            # -- Experiments with reduced point clouds start here
+            
+            feed_dict = {ops['pointclouds_pl']: perturbedData,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
             summary, step, loss_val, pred_val, maxpool_out, gradients = sess.run([ops['merged'], ops['step'],
                 ops['loss'], ops['pred'], ops['maxpool_out'],ops['gradients']], feed_dict=feed_dict)
             pred_val = np.argmax(pred_val, 1)
             correct = np.sum(pred_val == current_label[start_idx:end_idx])
-            total_correct += correct
-            total_seen += BATCH_SIZE
-            loss_sum += (loss_val*BATCH_SIZE)
+            total_correct_PDel += correct
+            total_seen_PDel += BATCH_SIZE
+            loss_sum_PDel += (loss_val*BATCH_SIZE)
             for i in range(start_idx, end_idx):
                 l = current_label[i]
-                total_seen_class[l] += 1
-                total_correct_class[l] += (pred_val[i-start_idx] == l)
+                total_seen_class_PDel[l] += 1
+                total_correct_class_PDel[l] += (pred_val[i-start_idx] == l)
         
-            print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
-            print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
+            print('Grad-CAM for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
+#             print('Grad-CAM for test class label: "%s"' % getShapeName(testLabel))
             print(gradients)
              
             from matplotlib import pyplot as plt
@@ -420,15 +460,152 @@ def test_rotation_XYZ(sess, ops, test_writer):
     #         log_string('Contributing vector index count:')
     #         occArr = gch.count_occurance(maxpool_out)
     
+            gch.draw_heatcloud(perturbedData, truncGrad)
+            
+    log_string('eval mean loss: %f' % (loss_sum_PDel / float(total_seen_PDel)))
+    log_string('eval accuracy: %f'% (total_correct_PDel / float(total_seen_PDel)))
+    log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class_PDel)/np.array(total_seen_class_PDel,dtype=np.float))))
+        
+def test_rotation_XYZ(sess, ops, test_writer):
+    """ ops: dict mapping from string to tf ops """
+    """ ops: dict mapping from string to tf ops """
+    is_training = False
+    total_correct = 0
+    total_seen = 0
+    loss_sum = 0
+    total_seen_class = [0 for _ in range(NUM_CLASSES)]
+    total_correct_class = [0 for _ in range(NUM_CLASSES)]
+    
+    for fn in range(1):
+        log_string('----Testbatch ' + str(fn) + '-----')
+        current_data, current_label = provider.loadDataFile(TEST_FILES[fn])
+        current_data = current_data[:,0:NUM_POINT,:]
+        current_label = np.squeeze(current_label)
+        
+        correctLabel = findCorrectLabel(current_label)
+        
+        batchStart = correctLabel
+        
+        for _ in range(numTestRuns):
+            start_idx = batchStart * BATCH_SIZE
+            end_idx = (batchStart+1) * BATCH_SIZE
+            currentPointCloud = current_data[start_idx:end_idx, :, :]
+            
+            pcd = PointCloud()
+            pcd.points = Vector3dVector(currentPointCloud[0])
+            draw_geometries([pcd])
+
+#             rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
+            rotated_data = currentPointCloud
+            feed_dict = {ops['pointclouds_pl']: rotated_data,
+                         ops['labels_pl']: current_label[start_idx:end_idx],
+                         ops['is_training_pl']: is_training}
+            summary, step, loss_val, pred_val, maxpool_out, gradients = sess.run([ops['merged'], ops['step'],
+                ops['loss'], ops['pred'], ops['maxpool_out'],ops['gradients']], feed_dict=feed_dict)
+            pred_val = np.argmax(pred_val, 1)
+            correct = np.sum(pred_val == current_label[start_idx:end_idx])
+            total_correct += correct
+            total_seen += BATCH_SIZE
+            loss_sum += (loss_val*BATCH_SIZE)
+            for i in range(start_idx, end_idx):
+                l = current_label[i]
+                total_seen_class[l] += 1
+                total_correct_class[l] += (pred_val[i-start_idx] == l)
+        
+#             print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
+            print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
+#             print(gradients)
+#               
+#             from matplotlib import pyplot as plt
+#               
+#             print("LENGTH GRADIENTS: ", len(gradients))
+#             average = gch.get_average(gradients)
+#             median = gch.get_median(gradients)
+            truncGrad = gch.truncate_to_average(gradients)
+              
+    #         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
+    #         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+    #         plt.legend(title='Gradient value plot:')
+    #         plt.show()
+             
+    #         plt.plot(np.arange(len(gradients)), truncGrad,'C1', label='Truncated gradient')
+    #         plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+    #         plt.legend(title='Gradient value plot:')
+    #         plt.show()
+             
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+#             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#             plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
+#             plt.legend(title='Gradient value plot:')
+#             plt.show()
+      
+    #         gradient_values = gradients
+    #         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
+    #         bins2 = [0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001]
+    #         bins3 = [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01]
+    #         bins4 = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1]
+    #         bins5 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
+    #         bins6 = [1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
+    #         plt.hist(gradient_values, bins1, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+    #         plt.hist(gradient_values, bins2, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+    #         plt.hist(gradient_values, bins3, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+    #         plt.hist(gradient_values, bins4, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+    #         plt.hist(gradient_values, bins5, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+    #         plt.hist(gradient_values, bins6, histtype='bar', rwidth=0.8)
+    #         plt.xlabel('Values')
+    #         plt.ylabel('Number of hits')
+    #         plt.title('Histogram')
+    #         plt.show()
+             
+    #         log_string('Max Pooling Array:')
+    #         print(maxpool_out)
+    #         log_string('Contributing vector indices:')
+    #         gch.list_contrib_vectors(maxpool_out)
+    #         log_string('Contributing vector index count:')
+    #         occArr = gch.count_occurance(maxpool_out)
+    
             gch.draw_heatcloud(rotated_data, truncGrad)
             
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
+    return gradients, currentPointCloud
     
+def perturb_pointcloud_data(inputGradient,inputPointcloud):
+    perturbed_data = gch.delete_all_above_average(inputGradient, inputPointcloud)
+    return perturbed_data
 
 if __name__ == "__main__":
-    train()
+    gradients, curPointCloud = train()
+#     resultGrad = gch.delete_all_above_average(gradients, curPointCloud)
+#     eval_perturbations(resultGrad.shape[1], resultGrad)
+    resultGrad = gch.delete_all_nonzeros(gradients, curPointCloud)
+    eval_perturbations(resultGrad.shape[1], resultGrad)
     LOG_FOUT.close()
 
 
