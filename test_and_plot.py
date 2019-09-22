@@ -13,16 +13,17 @@ sys.path.append(os.path.join(BASE_DIR, 'models'))
 sys.path.append(os.path.join(BASE_DIR, 'utils'))
 import provider
 import tf_util
+from matplotlib import pyplot as plt
 import gen_contrib_heatmap as gch
-from open3d import *
+import test_data_handler as tdh
 
 #===============================================================================
 # Global variables to control program behavior
 #===============================================================================
 usePreviousSession = True   #--Set this to true to use a previously trained model.
 performTraining = False     #--Set this to true to train the model. Set to false to only test the pretrained model.
-testLabel = 24             #--The index of the class label the object should be tested against.
-numTestRuns = 2024          #--Amount of tests for the current test label object.
+testLabel = 2             #--The index of the class label the object should be tested against.
+numTestRuns = 400          #--Amount of tests for the current test label object.
 
 #===============================================================================
 # Help Functions
@@ -93,7 +94,7 @@ def getShapeName(index):
     shapeTXT = open('data\\modelnet40_ply_hdf5_2048\\shape_names.txt', 'r')
     entry = ''
     for _ in range(index + 1):
-        entry = shapeTXT.readline()
+        entry = shapeTXT.readline().rstrip()
     shapeTXT.close()
     return entry
 
@@ -387,8 +388,6 @@ def test_perturbed_pc(sess,ops,perturbedData):
 #             print('Grad-CAM for test class label: "%s"' % getShapeName(testLabel))
             print(gradients)
              
-            from matplotlib import pyplot as plt
-             
             print("LENGTH GRADIENTS: ", len(gradients))
             average = gch.get_average(gradients)
             median = gch.get_median(gradients)
@@ -475,6 +474,7 @@ def test_rotation_XYZ(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
+    testResults = []
     
     for fn in range(1):
         log_string('----Testbatch ' + str(fn) + '-----')
@@ -490,13 +490,8 @@ def test_rotation_XYZ(sess, ops, test_writer):
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart+1) * BATCH_SIZE
             currentPointCloud = current_data[start_idx:end_idx, :, :]
-            
-            pcd = PointCloud()
-            pcd.points = Vector3dVector(currentPointCloud[0])
-            draw_geometries([pcd])
 
-#             rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
-            rotated_data = currentPointCloud
+            rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
             feed_dict = {ops['pointclouds_pl']: rotated_data,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
@@ -507,90 +502,24 @@ def test_rotation_XYZ(sess, ops, test_writer):
             total_correct += correct
             total_seen += BATCH_SIZE
             loss_sum += (loss_val*BATCH_SIZE)
+            testResults.append(total_correct / float(total_seen)) 
             for i in range(start_idx, end_idx):
                 l = current_label[i]
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
         
 #             print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
-            print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
-#             print(gradients)
+#             print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
 #               
-#             from matplotlib import pyplot as plt
-#               
-#             print("LENGTH GRADIENTS: ", len(gradients))
 #             average = gch.get_average(gradients)
 #             median = gch.get_median(gradients)
-            truncGrad = gch.truncate_to_average(gradients)
-              
-    #         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
-    #         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-    #         plt.plot(np.arange(len(gradients)), truncGrad,'C1', label='Truncated gradient')
-    #         plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-#             plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
-#             plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
-#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-#             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-#             plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
-#             plt.legend(title='Gradient value plot:')
-#             plt.show()
-      
-    #         gradient_values = gradients
-    #         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
-    #         bins2 = [0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001]
-    #         bins3 = [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01]
-    #         bins4 = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1]
-    #         bins5 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
-    #         bins6 = [1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-    #         plt.hist(gradient_values, bins1, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins2, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins3, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins4, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins5, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins6, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-             
-    #         log_string('Max Pooling Array:')
-    #         print(maxpool_out)
-    #         log_string('Contributing vector indices:')
-    #         gch.list_contrib_vectors(maxpool_out)
-    #         log_string('Contributing vector index count:')
-    #         occArr = gch.count_occurance(maxpool_out)
+#             truncGrad = gch.truncate_to_average(gradients)
     
-            gch.draw_heatcloud(rotated_data, truncGrad)
+#             gch.draw_heatcloud(rotated_data, truncGrad)
             
+        filePath = getShapeName(testLabel)+"_"+str(numTestRuns)+"_"+str(fn)
+        print("STORING FILES TO: ", filePath)
+        tdh.writeAllResults(filePath, testResults)
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
@@ -600,12 +529,23 @@ def perturb_pointcloud_data(inputGradient,inputPointcloud):
     perturbed_data = gch.delete_all_above_average(inputGradient, inputPointcloud)
     return perturbed_data
 
+def plotResults(inputArray, labelName):
+    plt.plot(np.arange(len(inputArray)), inputArray, label='Prediction Accuracy')
+    plt.plot(np.arange(len(inputArray)), inputArray, 'C0o', alpha=0.3)
+    plt.legend(title=(labelName+' Accuracy value plot:'))
+    plt.ylabel("Accuracy")
+    plt.xlabel("Test runs")
+    plt.show()
+
 if __name__ == "__main__":
-    gradients, curPointCloud = train()
+#     gradients, curPointCloud = train()
 #     resultGrad = gch.delete_all_above_average(gradients, curPointCloud)
 #     eval_perturbations(resultGrad.shape[1], resultGrad)
-    resultGrad = gch.delete_all_nonzeros(gradients, curPointCloud)
-    eval_perturbations(resultGrad.shape[1], resultGrad)
+#     resultGrad = gch.delete_all_nonzeros(gradients, curPointCloud)
+#     eval_perturbations(resultGrad.shape[1], resultGrad)
+
+    testResults = tdh.readTestFile("bed_400_0")
+    plotResults(testResults, "Bed")
     LOG_FOUT.close()
 
 

@@ -343,16 +343,16 @@ def test_rotation_XYZ(sess, ops, test_writer):
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
         
-            print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
-            print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
-            print(gradients)
-             
-            from matplotlib import pyplot as plt
-             
-            print("LENGTH GRADIENTS: ", len(gradients))
-            average = gch.get_average(gradients)
-            median = gch.get_median(gradients)
-            truncGrad = gch.truncate_to_average(gradients)
+#             print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
+#             print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
+#             print(gradients)
+#              
+#             from matplotlib import pyplot as plt
+#              
+#             print("LENGTH GRADIENTS: ", len(gradients))
+#             average = gch.get_average(gradients)
+#             median = gch.get_median(gradients)
+#             truncGrad = gch.truncate_to_average(gradients)
               
     #         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
     #         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
@@ -366,14 +366,14 @@ def test_rotation_XYZ(sess, ops, test_writer):
     #         plt.legend(title='Gradient value plot:')
     #         plt.show()
              
-            plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
-            plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-            plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
-            plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-            plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-            plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
-            plt.legend(title='Gradient value plot:')
-            plt.show()
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+#             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#             plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
+#             plt.legend(title='Gradient value plot:')
+#             plt.show()
       
     #         gradient_values = gradients
     #         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
@@ -420,7 +420,7 @@ def test_rotation_XYZ(sess, ops, test_writer):
     #         log_string('Contributing vector index count:')
     #         occArr = gch.count_occurance(maxpool_out)
     
-            gch.draw_heatcloud(rotated_data, truncGrad)
+#             gch.draw_heatcloud(rotated_data, truncGrad)
             
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
