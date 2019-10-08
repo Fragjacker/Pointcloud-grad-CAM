@@ -22,8 +22,9 @@ import test_data_handler as tdh
 #===============================================================================
 usePreviousSession = True   #--Set this to true to use a previously trained model.
 performTraining = False     #--Set this to true to train the model. Set to false to only test the pretrained model.
-testLabel = 2             #--The index of the class label the object should be tested against.
-numTestRuns = 400          #--Amount of tests for the current test label object.
+desiredLabel = 1            #--The index of the class label the object should be tested against.
+numTestBatchSize = 1000     #--Amount of tests for the current test label object.
+maxNumPoints = 2048         #--How many points should be considered? [256/512/1024/2048] [default: 1024]
 
 #===============================================================================
 # Help Functions
@@ -46,11 +47,13 @@ def computeHeatGradient(class_activation_vector, feature_vector, classIndex):
     gradients = tf.squeeze(gradients, axis=[0,1,3])
 
     # Average pooling of the weights over all batches
-    gradients = tf.reduce_mean(gradients, axis=1)
+#     gradients = tf.reduce_mean(gradients, axis=1)   # Average pooling
+    gradients = tf.reduce_max(gradients, axis=1)    # Max pooling
+#     gradients = tf.squeeze(tf.map_fn(lambda x: x[0:1], gradients)) # Stride pooling
 
     # Multiply with original pre maxpool feature vector to get weights
     feature_vector = tf.squeeze(feature_vector,axis=[0,2])  # Remove empty dimensions of the feature vector so we get [batch_size,1024]
-    multiply = tf.constant(feature_vector[1].get_shape().as_list())
+    multiply = tf.constant(feature_vector[1].get_shape().as_list()) # Feature vector matrix
     multMatrix = tf.reshape(tf.tile(gradients, multiply), [ multiply[0], gradients.get_shape().as_list()[0]])   # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
     gradients = tf.matmul(feature_vector, multMatrix)   # Multiply [batch_size, 1024] x [1024, batch_size]
     gradients = tf.diag_part(gradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
@@ -112,16 +115,16 @@ def findCorrectLabel(inputLabelArray):
             break
     return result
         
-
+testLabel = desiredLabel - 1    #-- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 #------------------------------------------------------------------------------ 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls', help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
-parser.add_argument('--num_point', type=int, default=2048, help='Point Number [256/512/1024/2048] [default: 1024]')
+parser.add_argument('--num_point', type=int, default=maxNumPoints, help='Point Number [256/512/1024/2048] [default: 1024]')
 parser.add_argument('--max_epoch', type=int, default=250, help='Epoch to run [default: 250]')
-parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during training [default: 32]')
+parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during evaluation [default: 1]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--momentum', type=float, default=0.9, help='Initial learning rate [default: 0.9]')
 parser.add_argument('--optimizer', default='adam', help='adam or momentum [default: adam]')
@@ -273,7 +276,7 @@ def train():
         return heatMap, curPointCloud
             
             
-def eval_perturbations(numInputPoints, perturbedData):
+def eval_perturbations(numInputPoints, perturbedData, mode):
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
             pointclouds_pl, labels_pl = MODEL.placeholder_inputs(BATCH_SIZE, numInputPoints)
@@ -341,31 +344,28 @@ def eval_perturbations(numInputPoints, perturbedData):
         
         log_string('**** TESTING MODEL ****')
         sys.stdout.flush()
-        test_perturbed_pc(sess, ops, perturbedData)
+        test_perturbed_pc(sess, ops, perturbedData, mode)
         sess.close()
 
-def test_perturbed_pc(sess,ops,perturbedData):
+def test_perturbed_pc(sess,ops,perturbedData,mode):
     total_correct_PDel = 0
     total_seen_PDel = 0
     loss_sum_PDel = 0
     total_seen_class_PDel = [0 for _ in range(NUM_CLASSES)]
     total_correct_class_PDel = [0 for _ in range(NUM_CLASSES)]
     is_training = False
+    testResults = []
     
     for fn in range(1):
         log_string('----Testbatch ' + str(fn) + '-----')
         _, current_label = provider.loadDataFile(TEST_FILES[fn])
         current_label = np.squeeze(current_label)
-        print("current_label: ", current_label)
         
-        correctLabel = findCorrectLabel(current_label)
-        batchStart = correctLabel
+        batchStart = findCorrectLabel(current_label)
         
-        for _ in range(numTestRuns):
+        for _ in range(numTestBatchSize):
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart+1) * BATCH_SIZE
-            print("start_idx: ", start_idx)
-            print("end_idx: ", end_idx)
             
             # -- Experiments with reduced point clouds start here
             
@@ -379,79 +379,30 @@ def test_perturbed_pc(sess,ops,perturbedData):
             total_correct_PDel += correct
             total_seen_PDel += BATCH_SIZE
             loss_sum_PDel += (loss_val*BATCH_SIZE)
+            testResults.append(total_correct_PDel / float(total_seen_PDel)) 
             for i in range(start_idx, end_idx):
                 l = current_label[i]
                 total_seen_class_PDel[l] += 1
                 total_correct_class_PDel[l] += (pred_val[i-start_idx] == l)
         
-            print('Grad-CAM for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
+#             print('Grad-CAM for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
 #             print('Grad-CAM for test class label: "%s"' % getShapeName(testLabel))
-            print(gradients)
+#             print(gradients)
              
-            print("LENGTH GRADIENTS: ", len(gradients))
-            average = gch.get_average(gradients)
-            median = gch.get_median(gradients)
-            truncGrad = gch.truncate_to_average(gradients)
-              
-    #         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
-    #         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-    #         plt.plot(np.arange(len(gradients)), truncGrad,'C1', label='Truncated gradient')
-    #         plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-            plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
-            plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-            plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
-            plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-            plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-            plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
-            plt.legend(title='Gradient value plot:')
-            plt.show()
+#         print("LENGTH GRADIENTS: ", len(gradients))
+#         average = gch.get_average(gradients)
+#         median = gch.get_median(gradients)
+#         truncGrad = gch.truncate_to_average(gradients)
+#               
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
+#             plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
+#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+#             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#             plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
+#             plt.legend(title='Gradient value plot:')
+#             plt.show()
       
-    #         gradient_values = gradients
-    #         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
-    #         bins2 = [0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001]
-    #         bins3 = [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01]
-    #         bins4 = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1]
-    #         bins5 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
-    #         bins6 = [1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-    #         plt.hist(gradient_values, bins1, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins2, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins3, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins4, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins5, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins6, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-             
     #         log_string('Max Pooling Array:')
     #         print(maxpool_out)
     #         log_string('Contributing vector indices:')
@@ -459,8 +410,12 @@ def test_perturbed_pc(sess,ops,perturbedData):
     #         log_string('Contributing vector index count:')
     #         occArr = gch.count_occurance(maxpool_out)
     
-            gch.draw_heatcloud(perturbedData, truncGrad)
+#         gch.draw_heatcloud(perturbedData, truncGrad)
             
+        filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(mode)
+        print("STORING FILES TO: ", filePath)
+        tdh.writeAllResults(filePath, testResults)
+        
     log_string('eval mean loss: %f' % (loss_sum_PDel / float(total_seen_PDel)))
     log_string('eval accuracy: %f'% (total_correct_PDel / float(total_seen_PDel)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class_PDel)/np.array(total_seen_class_PDel,dtype=np.float))))
@@ -482,16 +437,16 @@ def test_rotation_XYZ(sess, ops, test_writer):
         current_data = current_data[:,0:NUM_POINT,:]
         current_label = np.squeeze(current_label)
         
-        correctLabel = findCorrectLabel(current_label)
+        batchStart = findCorrectLabel(current_label)
+        print("CORRECT LABEL: ", batchStart)
         
-        batchStart = correctLabel
-        
-        for _ in range(numTestRuns):
+        for _ in range(numTestBatchSize):
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart+1) * BATCH_SIZE
             currentPointCloud = current_data[start_idx:end_idx, :, :]
 
-            rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
+#             rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
+            rotated_data = currentPointCloud
             feed_dict = {ops['pointclouds_pl']: rotated_data,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
@@ -510,19 +465,29 @@ def test_rotation_XYZ(sess, ops, test_writer):
         
 #             print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
 #             print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
-#               
-#             average = gch.get_average(gradients)
-#             median = gch.get_median(gradients)
-#             truncGrad = gch.truncate_to_average(gradients)
-    
-#             gch.draw_heatcloud(rotated_data, truncGrad)
+#                
+#             print("LENGTH GRADIENTS: ", len(gradients))
+        average = gch.get_average(gradients)
+#         median = gch.get_median(gradients)
+        truncGrad = gch.truncate_to_average(gradients)
+              
+        plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
+        plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
+        plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
+        plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
+        plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#         plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
+        plt.legend(title='Gradient value plot:')
+        plt.show()
+  
+        gch.draw_heatcloud(rotated_data, truncGrad)
             
-        filePath = getShapeName(testLabel)+"_"+str(numTestRuns)+"_"+str(fn)
+        filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(fn)+"_nonXYZ"
         print("STORING FILES TO: ", filePath)
         tdh.writeAllResults(filePath, testResults)
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
-    log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
+#     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
     return gradients, currentPointCloud
     
 def perturb_pointcloud_data(inputGradient,inputPointcloud):
@@ -534,18 +499,25 @@ def plotResults(inputArray, labelName):
     plt.plot(np.arange(len(inputArray)), inputArray, 'C0o', alpha=0.3)
     plt.legend(title=(labelName+' Accuracy value plot:'))
     plt.ylabel("Accuracy")
-    plt.xlabel("Test runs")
+    plt.xlabel("Batch size")
     plt.show()
 
 if __name__ == "__main__":
-#     gradients, curPointCloud = train()
+    gradients, curPointCloud = train()
 #     resultGrad = gch.delete_all_above_average(gradients, curPointCloud)
-#     eval_perturbations(resultGrad.shape[1], resultGrad)
+#     eval_perturbations(resultGrad.shape[1], resultGrad, "above_average_removed")
+    resultGrad = gch.delete_randon_points(1950, curPointCloud)
+    gch.draw_pointcloud(resultGrad)
+    sys.exit()
 #     resultGrad = gch.delete_all_nonzeros(gradients, curPointCloud)
-#     eval_perturbations(resultGrad.shape[1], resultGrad)
+#     gch.draw_pointcloud(resultGrad)
+#     eval_perturbations(resultGrad.shape[1], resultGrad, "non_zeros_removed")
+#     resultGrad = gch.delete_all_zeros(gradients, curPointCloud)
+#     gch.draw_pointcloud(resultGrad)
+#     eval_perturbations(resultGrad.shape[1], resultGrad, "zeros_removed")
 
-    testResults = tdh.readTestFile("bed_400_0")
-    plotResults(testResults, "Bed")
+    testResults = tdh.readTestFile("airplane_1000_zeros_removed")
+    plotResults(testResults, "Airplane")
     LOG_FOUT.close()
 
 

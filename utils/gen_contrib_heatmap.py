@@ -8,6 +8,7 @@ a heatmap similar to the Grad-CAM approach described here: https://arxiv.org/pdf
 @author: Dennis Struhs
 '''
 import numpy as np
+import random
 from open3d import *
 
 def _return_workArr(inputArr):
@@ -78,15 +79,24 @@ def delete_all_above_average(inputheatMap, inputArr):
     locArr = np.delete(locArr, candArr, 1)
     return locArr
 
+def delete_randon_points(numPoints, inputArr):
+    locArr = inputArr.copy()
+    randomArr = random.sample(range(inputArr.shape[1]-1), numPoints)
+    locArr = np.delete(locArr, randomArr, 1)
+    return locArr
+
 def truncate_to_average(inputArr):
     averageVal = get_average(inputArr)
     newArr = []
+    counter = 0
     for index in range(len(inputArr)):
         curVal = inputArr[index]
         if curVal > averageVal:
             newArr.append(averageVal)
+            counter += 1
         else:
             newArr.append(inputArr[index])
+    print("BEYOND AVERAGE VALUES: ", counter)
     return newArr
     
 def draw_heatcloud(inpCloud, hitCheckArr):
@@ -103,11 +113,18 @@ def draw_heatcloud(inpCloud, hitCheckArr):
                 green = 1 - (curVal / maxColVal)
                 pColors[index] = [red, green, 0]
         except:
+            print("INVALID VALUE FOR INDEX: ", index)
             pColors[index] = [0, 0, 0]
     
     pcd = PointCloud()
     pcd.points = Vector3dVector(inpCloud[0])
     pcd.colors = Vector3dVector(pColors)
+    draw_geometries([pcd])
+    
+def draw_pointcloud(inputPointCloudArr):
+    pcd = PointCloud()
+    pcd.points = Vector3dVector(inputPointCloudArr[0])
+    pcd.colors = Vector3dVector(np.zeros((len(inputPointCloudArr[0]),3),dtype=float))
     draw_geometries([pcd])
     
 # arr = np.ndarray(shape=(1,1,6), dtype=int)
