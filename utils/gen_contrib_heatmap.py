@@ -43,6 +43,14 @@ def get_median(inputArr):
     median = locArr[int(len(locArr) / 2)]
     return median
 
+def get_midrange(inputArr):
+    locArr = inputArr.copy()
+    locArr = locArr[locArr > 0]
+    minVal = min(locArr)
+    maxVal = max(locArr)
+    result = (minVal + maxVal) / 2
+    return result
+
 def delete_top_n_points(inputArr, numPoints):
     locArr = inputArr.copy()
     locArr.sort()
@@ -54,30 +62,36 @@ def delete_top_n_points(inputArr, numPoints):
 def delete_all_nonzeros(inputheatMap, inputArr):
     locArr = inputArr.copy()
     candArr = []
+    count = 0
     for index, eachItem in enumerate(inputheatMap):
         if eachItem > 0:
             candArr.append(index)
+            count += 1
     locArr = np.delete(locArr, candArr, 1)
-    return locArr
+    return locArr, count
 
 def delete_all_zeros(inputheatMap, inputArr):
     locArr = inputArr.copy()
     candArr = []
+    count = 0 
     for index, eachItem in enumerate(inputheatMap):
         if eachItem == 0:
             candArr.append(index)
+            count += 1
     locArr = np.delete(locArr, candArr, 1)
-    return locArr
+    return locArr, count
 
 def delete_all_above_average(inputheatMap, inputArr):
     locArr = inputArr.copy()
     candArr = []
+    count = 0
     avg = get_average(inputheatMap)
     for index, eachItem in enumerate(inputheatMap):
         if eachItem > avg:
             candArr.append(index)
+            count += 1
     locArr = np.delete(locArr, candArr, 1)
-    return locArr
+    return locArr, count
 
 def delete_randon_points(numPoints, inputArr):
     locArr = inputArr.copy()
@@ -85,18 +99,17 @@ def delete_randon_points(numPoints, inputArr):
     locArr = np.delete(locArr, randomArr, 1)
     return locArr
 
-def truncate_to_average(inputArr):
-    averageVal = get_average(inputArr)
+def truncate_to_threshold(inputArr, threshold):
     newArr = []
     counter = 0
     for index in range(len(inputArr)):
         curVal = inputArr[index]
-        if curVal > averageVal:
-            newArr.append(averageVal)
+        if curVal > threshold:
+            newArr.append(threshold)
             counter += 1
         else:
             newArr.append(inputArr[index])
-    print("BEYOND AVERAGE VALUES: ", counter)
+    print("BEYOND THRESHOLD VALUES: ", counter)
     return newArr
     
 def draw_heatcloud(inpCloud, hitCheckArr):

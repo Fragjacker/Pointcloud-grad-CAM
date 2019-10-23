@@ -47,6 +47,18 @@ def readTestFile( filePath ):
     f.close()
     return resultArr
 
+def writeResult( filePath, item ):
+    """
+    This writes a single float value to file as 4 byte float values.
+    
+    @param filePath: The absolute path to the file in the system.
+    @param resultArray: The array that contains the values to be written.
+    @return: Array of stored floats.
+    """
+    f = open( filePath, 'ab' )
+    WriteFloat( f, item )
+    f.close()
+
 def writeAllResults( filePath, resultArray ):
     """
     This writes an array of float values to file as 4 byte float values.
