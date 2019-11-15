@@ -47,8 +47,8 @@ def computeHeatGradient(class_activation_vector, feature_vector, classIndex):
     gradients = tf.squeeze(gradients, axis=[0,1,3])
 
     # Average pooling of the weights over all batches
-    gradients = tf.reduce_mean(gradients, axis=1)   # Average pooling
-#     gradients = tf.reduce_max(gradients, axis=1)    # Max pooling
+#     gradients = tf.reduce_mean(gradients, axis=1)   # Average pooling
+    gradients = tf.reduce_max(gradients, axis=1)    # Max pooling
 #     gradients = tf.squeeze(tf.map_fn(lambda x: x[100:101], gradients)) # Stride pooling
 
     # Multiply with original pre maxpool feature vector to get weights
@@ -358,7 +358,8 @@ def test_perturbed_pc(sess,ops,perturbedData,mode):
     total_seen_class_PDel = [0 for _ in range(NUM_CLASSES)]
     total_correct_class_PDel = [0 for _ in range(NUM_CLASSES)]
     is_training = False
-    testResults = []
+    accuracyResults = []
+    meanlossResults = []
     
     for fn in range(1):
         log_string('----Testbatch ' + str(fn) + '-----')
@@ -373,6 +374,7 @@ def test_perturbed_pc(sess,ops,perturbedData,mode):
             
             # -- Experiments with reduced point clouds start here
             
+            perturbedData = provider.rotate_point_cloud_XYZ(perturbedData) # Rotate randomly around XYZ axis
             feed_dict = {ops['pointclouds_pl']: perturbedData,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
@@ -383,7 +385,8 @@ def test_perturbed_pc(sess,ops,perturbedData,mode):
             total_correct_PDel += correct
             total_seen_PDel += BATCH_SIZE
             loss_sum_PDel += (loss_val*BATCH_SIZE)
-            testResults.append(total_correct_PDel / float(total_seen_PDel)) 
+            accuracyResults.append(total_correct_PDel / float(total_seen_PDel))
+            meanlossResults.append(loss_sum_PDel / float(total_seen_PDel))
             for i in range(start_idx, end_idx):
                 l = current_label[i]
                 total_seen_class_PDel[l] += 1
@@ -415,17 +418,19 @@ def test_perturbed_pc(sess,ops,perturbedData,mode):
     #         occArr = gch.count_occurance(maxpool_out)
     
 #         gch.draw_heatcloud(perturbedData, truncGrad)
-
-        print("POINT DELETE PREDICTION: ", getPrediction(pred_val))
-            
 #         filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(mode)
 #         print("STORING FILES TO: ", filePath)
 #         tdh.writeAllResults(filePath, testResults)
-        
+
+    print("POINT DELETE PREDICTION: ", getPrediction(pred_val))   
     mean_loss = loss_sum_PDel / float(total_seen_PDel)
-    filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(mode)+"_loss"
+    filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(mode)+"_meanloss"
     print("STORING FILES TO: ", filePath)
-    tdh.writeResult(filePath, mean_loss)
+    tdh.writeAllResults(filePath, meanlossResults)
+    filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(mode)+"_accuracy"
+    print("STORING FILES TO: ", filePath)
+    tdh.writeAllResults(filePath, accuracyResults)
+    
     log_string('eval mean loss: %f' % mean_loss)
     log_string('eval accuracy: %f'% (total_correct_PDel / float(total_seen_PDel)))
 #     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class_PDel)/np.array(total_seen_class_PDel,dtype=np.float))))
@@ -440,7 +445,8 @@ def test_rotation_XYZ(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    testResults = []
+    accuracyResults = []
+    meanlossResults = []
     
     for fn in range(1):
         log_string('----Testbatch ' + str(fn) + '-----')
@@ -455,8 +461,8 @@ def test_rotation_XYZ(sess, ops, test_writer):
             end_idx = (batchStart+1) * BATCH_SIZE
             currentPointCloud = current_data[start_idx:end_idx, :, :]
 
-#             rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
-            rotated_data = provider.rotate_point_cloud(currentPointCloud)
+            rotated_data = provider.rotate_point_cloud_XYZ(currentPointCloud)
+#             rotated_data = provider.rotate_point_cloud(currentPointCloud)
 #             rotated_data = currentPointCloud
             feed_dict = {ops['pointclouds_pl']: rotated_data,
                          ops['labels_pl']: current_label[start_idx:end_idx],
@@ -468,7 +474,8 @@ def test_rotation_XYZ(sess, ops, test_writer):
             total_correct += correct
             total_seen += BATCH_SIZE
             loss_sum += (loss_val*BATCH_SIZE)
-            testResults.append(total_correct / float(total_seen)) 
+            accuracyResults.append(total_correct / float(total_seen))
+            meanlossResults.append(loss_sum / float(total_seen))
             for i in range(start_idx, end_idx):
                 l = current_label[i]
                 total_seen_class[l] += 1
@@ -481,11 +488,12 @@ def test_rotation_XYZ(sess, ops, test_writer):
 #         plotTwoResults(rotated_data, gradients, "average")
 #         plotTwoResults(rotated_data, gradients, "median")
 #         plotTwoResults(rotated_data, gradients, "midrange")
-        print("ROTATION PREDICTION: ", getPrediction(pred_val))
+#         print("ROTATION PREDICTION: ", getPrediction(pred_val))
+#         sys.exit()
             
 #         filePath = getShapeName(testLabel)+"_"+str(numTestBatchSize)+"_"+str(fn)+"_average_Y"
 #         print("STORING FILES TO: ", filePath)
-#         tdh.writeAllResults(filePath, testResults)
+#         tdh.writeAllResults(filePath, accuracyResults)
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
 #     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
@@ -500,11 +508,11 @@ def plotResults(inputArray, labelName):
     plt.show()
     
 def plotTwoAccuracies(inputArray1, inputArray2, labelName):
-    plt.plot(np.arange(len(inputArray1)), inputArray1, label='Point grad-Cam removal loss')
+    plt.plot(np.arange(len(inputArray1)), inputArray1, label='Average removed points')
     plt.plot(np.arange(len(inputArray1)), inputArray1, 'C0o', alpha=0.3)
-    plt.plot(np.arange(len(inputArray1)), inputArray2, label='Random point removal loss')
+    plt.plot(np.arange(len(inputArray1)), inputArray2, label='Random removed points')
     plt.plot(np.arange(len(inputArray1)), inputArray2, 'C1o', alpha=0.3)
-    plt.legend(title=(labelName+' Loss value plot:'))
+    plt.legend(title=(labelName))
     plt.ylabel("Loss")
     plt.xlabel("Iterations")
     plt.show()
@@ -517,11 +525,11 @@ def plotTwoResults(pointdata, gradients, mode):
     elif mode == "median":
         median = gch.get_median(gradients)
         truncGrad = gch.truncate_to_threshold(gradients, median)
-        plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
+        plt.axhline(y=median, color='r', linestyle='-', label='Median (Zeros ignored)')
     elif mode =="midrange":
         midrange = gch.get_midrange(gradients)
         truncGrad = gch.truncate_to_threshold(gradients, midrange)
-        plt.axhline(y=midrange, color='b', linestyle='-', label='Mid-range (Zeros ignored)')
+        plt.axhline(y=midrange, color='r', linestyle='-', label='Mid-range (Zeros ignored)')
     
     plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Point weight value')
     plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
@@ -534,32 +542,38 @@ def plotTwoResults(pointdata, gradients, mode):
     gch.draw_heatcloud(pointdata, truncGrad)
 
 if __name__ == "__main__":
-    gradients = None
-    gradients, curPointCloud = train()
-    print("GRADIENT SIZE: ", len(gradients))
-    print("POINT CLOUD SIZE: ", curPointCloud.shape)
-    curPointCloudAvg = curPointCloud
-    curPointCloudRand = curPointCloud
-    for _ in range(10):
-#         resultPCloud, delCount = gch.delete_all_above_average(gradients, curPointCloud)
-    #     eval_perturbations(resultPCloud.shape[1], resultPCloud, "above_average_removed")
-        resultPCloudAvg, delCount = gch.delete_all_nonzeros(gradients, curPointCloudAvg)
-        gch.draw_pointcloud(resultPCloudAvg)
-        gradients = eval_perturbations(resultPCloudAvg.shape[1], resultPCloudAvg, "non_zeros_removed")
-#         resultPCloud, delCount = gch.delete_all_zeros(gradients, curPointCloud)
-    #     gch.draw_pointcloud(resultPCloud)
-#         eval_perturbations(resultPCloud.shape[1], resultPCloud, "zeros_removed")
-        resultPCloudRand = gch.delete_randon_points(delCount, curPointCloudRand)
-        gch.draw_pointcloud(resultPCloudRand)
-        _ = eval_perturbations(resultPCloudRand.shape[1], resultPCloudRand, "random_points_removed")
-        curPointCloudAvg = resultPCloudAvg
-        curPointCloudRand = resultPCloudRand
+#     gradients = None
+#     gradients, curPointCloud = train()
+#     print("GRADIENT SIZE: ", len(gradients))
+#     print("POINT CLOUD SIZE: ", curPointCloud.shape)
+#     curPointCloudResult = curPointCloud
+#     curPointCloudRand = curPointCloud
+#     for _ in range(10):
+#         resultPCloudThresh, delCount = gch.delete_above_threshold(gradients, curPointCloud, "average")
+#         gradients = eval_perturbations(resultPCloudThresh.shape[1], resultPCloudThresh, "XYZ_average_removed")
+# #         gch.draw_pointcloud(resultPCloudThresh)
+# #         resultPCloud, delCount = gch.delete_all_above_average(gradients, curPointCloud)
+# #         eval_perturbations(resultPCloud.shape[1], resultPCloud, "above_average_removed")
+# #         resultPCloudNonzero, delCount = gch.delete_all_nonzeros(gradients, curPointCloudResult)
+# #         gch.draw_pointcloud(resultPCloudNonzero)
+# #         gradients = eval_perturbations(resultPCloudNonzero.shape[1], resultPCloudNonzero, "non_zeros_removed")
+# #         resultPCloud, delCount = gch.delete_all_zeros(gradients, curPointCloud)
+# #         gch.draw_pointcloud(resultPCloud)
+# #         eval_perturbations(resultPCloud.shape[1], resultPCloud, "zeros_removed")
+#         resultPCloudRand = gch.delete_randon_points(delCount, curPointCloudRand)
+# #         gch.draw_pointcloud(resultPCloudRand)
+#         _ = eval_perturbations(resultPCloudRand.shape[1], resultPCloudRand, "XYZ_random_removed")
+#         curPointCloudResult = resultPCloudThresh
+#         curPointCloudRand = resultPCloudRand
 
 #     testResults = tdh.readTestFile("airplane_1000_0_average_Y")
 #     plotResults(testResults, "Airplane")
-    testResults1 = tdh.readTestFile("airplane_1000_non_zeros_removed_loss")
-    testResults2 = tdh.readTestFile("airplane_1000_random_points_removed_loss")
-    plotTwoAccuracies(testResults1,testResults2,"LOSS")
+    testResults1 = tdh.readTestFile("airplane_1000_XYZ_average_removed_meanloss")
+    testResults2 = tdh.readTestFile("airplane_1000_XYZ_random_removed_meanloss")
+    plotTwoAccuracies(testResults1,testResults2,"Airplane meanloss plot:")
+    testResults1 = tdh.readTestFile("airplane_1000_XYZ_average_removed_accuracy")
+    testResults2 = tdh.readTestFile("airplane_1000_XYZ_random_removed_accuracy")
+    plotTwoAccuracies(testResults1,testResults2,"Airplane accuracy plot:")
     LOG_FOUT.close()
 
 

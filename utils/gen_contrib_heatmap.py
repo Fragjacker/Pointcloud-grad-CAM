@@ -99,6 +99,26 @@ def delete_randon_points(numPoints, inputArr):
     locArr = np.delete(locArr, randomArr, 1)
     return locArr
 
+def delete_above_threshold(inputheatMap, inputArr, mode):
+    locArr = inputArr.copy()
+    candArr = []
+    threshold = None
+    count = 0
+    if mode == "average":
+        threshold = get_average(inputheatMap)
+    elif mode == "median":
+        threshold = get_median(inputheatMap)
+    elif mode =="midrange":
+        threshold = get_midrange(inputheatMap)
+        
+    for index, eachItem in enumerate(inputheatMap):
+        if eachItem > threshold:
+            candArr.append(index)
+            count += 1
+    locArr = np.delete(locArr, candArr, 1)
+    
+    return locArr, count
+
 def truncate_to_threshold(inputArr, threshold):
     newArr = []
     counter = 0
