@@ -9,6 +9,7 @@ a heatmap similar to the Grad-CAM approach described here: https://arxiv.org/pdf
 '''
 import numpy as np
 import random
+import copy
 from open3d import *
 
 def _return_workArr(inputArr):
@@ -37,14 +38,14 @@ def get_average(inputArr):
     return (valSum / count)
 
 def get_median(inputArr):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     locArr = locArr[locArr > 0]
     locArr.sort()
     median = locArr[int(len(locArr) / 2)]
     return median
 
 def get_midrange(inputArr):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     locArr = locArr[locArr > 0]
     minVal = min(locArr)
     maxVal = max(locArr)
@@ -52,7 +53,7 @@ def get_midrange(inputArr):
     return result
 
 def delete_top_n_points(inputArr, numPoints):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     locArr.sort()
     locArr.reverse()
     for _ in range(numPoints):
@@ -60,7 +61,7 @@ def delete_top_n_points(inputArr, numPoints):
     return locArr
 
 def delete_all_nonzeros(inputheatMap, inputArr):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     candArr = []
     count = 0
     for index, eachItem in enumerate(inputheatMap):
@@ -71,7 +72,7 @@ def delete_all_nonzeros(inputheatMap, inputArr):
     return locArr, count
 
 def delete_all_zeros(inputheatMap, inputArr):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     candArr = []
     count = 0 
     for index, eachItem in enumerate(inputheatMap):
@@ -81,26 +82,14 @@ def delete_all_zeros(inputheatMap, inputArr):
     locArr = np.delete(locArr, candArr, 1)
     return locArr, count
 
-def delete_all_above_average(inputheatMap, inputArr):
-    locArr = inputArr.copy()
-    candArr = []
-    count = 0
-    avg = get_average(inputheatMap)
-    for index, eachItem in enumerate(inputheatMap):
-        if eachItem > avg:
-            candArr.append(index)
-            count += 1
-    locArr = np.delete(locArr, candArr, 1)
-    return locArr, count
-
 def delete_randon_points(numPoints, inputArr):
-    locArr = inputArr.copy()
-    randomArr = random.sample(range(inputArr.shape[1]-1), numPoints)
+    locArr = copy.deepcopy(inputArr)
+    randomArr = random.sample(range(inputArr.shape[1]), numPoints)
     locArr = np.delete(locArr, randomArr, 1)
     return locArr
 
 def delete_above_threshold(inputheatMap, inputArr, mode):
-    locArr = inputArr.copy()
+    locArr = copy.deepcopy(inputArr)
     candArr = []
     threshold = None
     count = 0
@@ -119,9 +108,40 @@ def delete_above_threshold(inputheatMap, inputArr, mode):
     
     return locArr, count
 
-def truncate_to_threshold(inputArr, threshold):
+def delete_below_threshold(inputheatMap, inputArr, mode):
+    locArr = copy.deepcopy(inputArr)
+    candArr = []
+    threshold = None
+    count = 0
+    if inputArr.shape[1] <= 10:
+        return locArr, count
+    
+    if mode == "average":
+        threshold = get_average(inputheatMap)
+    elif mode == "median":
+        threshold = get_median(inputheatMap)
+    elif mode =="midrange":
+        threshold = get_midrange(inputheatMap)
+    
+    for index, eachItem in enumerate(inputheatMap):
+        if eachItem < threshold:
+            candArr.append(index)
+            count += 1
+    locArr = np.delete(locArr, candArr, 1)
+    
+    return locArr, count
+
+def truncate_to_threshold(inputArr, mode):
     newArr = []
     counter = 0
+    
+    if mode == "average":
+        threshold = get_average(inputArr)
+    elif mode == "median":
+        threshold = get_median(inputArr)
+    elif mode =="midrange":
+        threshold = get_midrange(inputArr)
+    
     for index in range(len(inputArr)):
         curVal = inputArr[index]
         if curVal > threshold:
@@ -132,7 +152,8 @@ def truncate_to_threshold(inputArr, threshold):
     print("BEYOND THRESHOLD VALUES: ", counter)
     return newArr
     
-def draw_heatcloud(inpCloud, hitCheckArr):
+def draw_heatcloud(inpCloud, hitCheckArr, mode):
+    hitCheckArr = truncate_to_threshold(hitCheckArr, mode)
     pColors = np.zeros((len(hitCheckArr),3),dtype=float)
     maxColVal = max(hitCheckArr)
 #     print('maxColVal: %s' % maxColVal)

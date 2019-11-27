@@ -94,20 +94,26 @@ def rotate_point_cloud_XYZ(batch_data):
     """
     rotated_data = np.zeros(batch_data.shape, dtype=np.float32)
     for k in range(batch_data.shape[0]):
-        rotation_angle = np.random.uniform() * 2 * np.pi
-        cosval = np.cos(rotation_angle)
-        sinval = np.sin(rotation_angle)
+        rotation_angle_X = np.random.uniform() * 2 * np.pi
+        rotation_angle_Y = np.random.uniform() * 2 * np.pi
+        rotation_angle_Z = np.random.uniform() * 2 * np.pi
+        cosval_X = np.cos(rotation_angle_X)
+        sinval_X = np.sin(rotation_angle_X)
+        cosval_Y = np.cos(rotation_angle_Y)
+        sinval_Y = np.sin(rotation_angle_Y)
+        cosval_Z = np.cos(rotation_angle_Z)
+        sinval_Z = np.sin(rotation_angle_Z)
         #--Rotate around the X-Axis
         rotation_matrix_X = np.array([[1, 0, 0],
-                                      [0, cosval, -sinval],
-                                      [0, sinval, cosval]])
+                                      [0, cosval_X, -sinval_X],
+                                      [0, sinval_X, cosval_X]])
         #--Rotate around the Y-Axis
-        rotation_matrix_Y = np.array([[cosval, 0, sinval],
+        rotation_matrix_Y = np.array([[cosval_Y, 0, sinval_Y],
                                       [0, 1, 0],
-                                      [-sinval, 0, cosval]])
+                                      [-sinval_Y, 0, cosval_Y]])
         #--Rotate around the Z-Axis
-        rotation_matrix_Z = np.array([[cosval, -sinval, 0],
-                                      [sinval, cosval, 0],
+        rotation_matrix_Z = np.array([[cosval_Z, -sinval_Z, 0],
+                                      [sinval_Z, cosval_Z, 0],
                                       [0, 0, 1]])
         
         rotated_data[k, ...] = np.dot(batch_data[k, ...].reshape((-1, 3)), rotation_matrix_X)

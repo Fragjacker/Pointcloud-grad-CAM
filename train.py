@@ -39,26 +39,26 @@ def computeHeatGradient(class_activation_vector, feature_vector, classIndex):
     class_activation_vector = tf.tensordot(class_activation_vector, tf.one_hot(indices=classIndex, depth=40),axes=[[1],[0]])
     
     # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
-    gradients = tf.gradients(ys=class_activation_vector, xs=feature_vector)
-    gradients = tf.squeeze(gradients, axis=[0,1,3])
+    maxgradients = tf.gradients(ys=class_activation_vector, xs=feature_vector)
+    maxgradients = tf.squeeze(maxgradients, axis=[0,1,3])
 
     # Average pooling of the weights over all batches
-    gradients = tf.reduce_mean(gradients, axis=1)
+    maxgradients = tf.reduce_mean(maxgradients, axis=1)
 
     # Multiply with original pre maxpool feature vector to get weights
     feature_vector = tf.squeeze(feature_vector,axis=[0,2])  # Remove empty dimensions of the feature vector so we get [batch_size,1024]
     multiply = tf.constant(feature_vector[1].get_shape().as_list())
-    multMatrix = tf.reshape(tf.tile(gradients, multiply), [ multiply[0], gradients.get_shape().as_list()[0]])   # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
-    gradients = tf.matmul(feature_vector, multMatrix)   # Multiply [batch_size, 1024] x [1024, batch_size]
-    gradients = tf.diag_part(gradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
+    multMatrix = tf.reshape(tf.tile(maxgradients, multiply), [ multiply[0], maxgradients.get_shape().as_list()[0]])   # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
+    maxgradients = tf.matmul(feature_vector, multMatrix)   # Multiply [batch_size, 1024] x [1024, batch_size]
+    maxgradients = tf.diag_part(maxgradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
     
     # ReLU out the negative values
-    gradients = tf.maximum(gradients, 0)
+    maxgradients = tf.maximum(maxgradients, 0)
     
-    return gradients
+    return maxgradients
 
-def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients):
-    if gradients is None:
+def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, maxgradients):
+    if maxgradients is None:
         ops = {'pointclouds_pl':pointclouds_pl, 
             'labels_pl':labels_pl, 
             'is_training_pl':is_training_pl, 
@@ -80,7 +80,7 @@ def getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, 
             'step':batch, 
             'maxpool_out':maxpool_out, 
             'feature_vec':feature_vec, 
-            'gradients':gradients}
+            'maxgradients':maxgradients}
     return ops
 
 def getShapeName(index):
@@ -235,14 +235,14 @@ def train():
             saver.restore(sess, trained_model)
             print("Model restored.")
             
-        # --Compute gradients only when evaluating the model.
+        # --Compute maxgradients only when evaluating the model.
         if not performTraining:
-            gradients = computeHeatGradient(pred, feature_vec, classIndex=testLabel)
+            maxgradients = computeHeatGradient(pred, feature_vec, classIndex=testLabel)
         else:
-            gradients = None
+            maxgradients = None
 
-        # --Get proper Ops according to if we want to compute gradients or not.
-        ops = getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, gradients)
+        # --Get proper Ops according to if we want to compute maxgradients or not.
+        ops = getOps(pointclouds_pl, labels_pl, is_training_pl, batch, pred, maxpool_out, feature_vec, loss, train_op, merged, maxgradients)
         
         if performTraining:
             for epoch in range(MAX_EPOCH):
@@ -331,8 +331,8 @@ def test_rotation_XYZ(sess, ops, test_writer):
             feed_dict = {ops['pointclouds_pl']: rotated_data,
                          ops['labels_pl']: current_label[start_idx:end_idx],
                          ops['is_training_pl']: is_training}
-            summary, step, loss_val, pred_val, maxpool_out, gradients = sess.run([ops['merged'], ops['step'],
-                ops['loss'], ops['pred'], ops['maxpool_out'],ops['gradients']], feed_dict=feed_dict)
+            summary, step, loss_val, pred_val, maxpool_out, maxgradients = sess.run([ops['merged'], ops['step'],
+                ops['loss'], ops['pred'], ops['maxpool_out'],ops['maxgradients']], feed_dict=feed_dict)
             pred_val = np.argmax(pred_val, 1)
             correct = np.sum(pred_val == current_label[start_idx:end_idx])
             total_correct += correct
@@ -343,85 +343,6 @@ def test_rotation_XYZ(sess, ops, test_writer):
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
         
-#             print('Gradients for shape: "%s"' % getShapeName(current_label[start_idx:end_idx][0]))
-#             print('With grad-CAM for test class label: "%s"' % getShapeName(testLabel))
-#             print(gradients)
-#              
-#             from matplotlib import pyplot as plt
-#              
-#             print("LENGTH GRADIENTS: ", len(gradients))
-#             average = gch.get_average(gradients)
-#             median = gch.get_median(gradients)
-#             truncGrad = gch.truncate_to_average(gradients)
-              
-    #         plt.plot(np.arange(len(gradients)), gradients, label='Original gradient')
-    #         plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-    #         plt.plot(np.arange(len(gradients)), truncGrad,'C1', label='Truncated gradient')
-    #         plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-    #         plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-    #         plt.legend(title='Gradient value plot:')
-    #         plt.show()
-             
-#             plt.plot(np.arange(len(gradients)), gradients, 'C0', label='Original gradient')
-#             plt.plot(np.arange(len(gradients)), gradients, 'C0o', alpha=0.3)
-#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1', label='Truncated gradient')
-#             plt.plot(np.arange(len(gradients)), truncGrad, 'C1o', alpha=0.3)
-#             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
-#             plt.axhline(y=median, color='b', linestyle='-', label='Median (Zeros ignored)')
-#             plt.legend(title='Gradient value plot:')
-#             plt.show()
-      
-    #         gradient_values = gradients
-    #         bins1 = [0, 1e-50,2e-50,3e-50,4e-50,5e-50,6e-50,7e-50,8e-50,9e-50,1e-49]
-    #         bins2 = [0.0001,0.0002,0.0003,0.0004,0.0005,0.0006,0.0007,0.0008,0.0009,0.001]
-    #         bins3 = [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01]
-    #         bins4 = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1]
-    #         bins5 = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
-    #         bins6 = [1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-    #         plt.hist(gradient_values, bins1, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins2, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins3, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins4, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins5, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-    #         plt.hist(gradient_values, bins6, histtype='bar', rwidth=0.8)
-    #         plt.xlabel('Values')
-    #         plt.ylabel('Number of hits')
-    #         plt.title('Histogram')
-    #         plt.show()
-             
-    #         log_string('Max Pooling Array:')
-    #         print(maxpool_out)
-    #         log_string('Contributing vector indices:')
-    #         gch.list_contrib_vectors(maxpool_out)
-    #         log_string('Contributing vector index count:')
-    #         occArr = gch.count_occurance(maxpool_out)
-    
-#             gch.draw_heatcloud(rotated_data, truncGrad)
-            
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
