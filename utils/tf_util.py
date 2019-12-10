@@ -365,11 +365,9 @@ def max_pool2d(inputs,
   with tf.variable_scope(scope) as sc:
     kernel_h, kernel_w = kernel_size
     stride_h, stride_w = stride
-    outputs = tf.nn.max_pool(inputs,
-                             ksize=[1, kernel_h, kernel_w, 1],
-                             strides=[1, stride_h, stride_w, 1],
-                             padding=padding,
-                             name=sc.name)
+
+    ## Dynamic max pooling
+    outputs = tf.reduce_max(inputs, axis=1, keepdims=True, name=sc.name)
     return outputs
 
 def avg_pool2d(inputs,

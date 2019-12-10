@@ -68,6 +68,10 @@ def delete_all_nonzeros(inputheatMap, inputArr):
         if eachItem > 0:
             candArr.append(index)
             count += 1
+            
+    if len(candArr) > locArr.shape[1] or 10 > locArr.shape[1]:
+        return locArr, 0
+    
     locArr = np.delete(locArr, candArr, 1)
     return locArr, count
 
@@ -113,8 +117,6 @@ def delete_below_threshold(inputheatMap, inputArr, mode):
     candArr = []
     threshold = None
     count = 0
-    if inputArr.shape[1] <= 10:
-        return locArr, count
     
     if mode == "average":
         threshold = get_average(inputheatMap)
@@ -127,6 +129,11 @@ def delete_below_threshold(inputheatMap, inputArr, mode):
         if eachItem < threshold:
             candArr.append(index)
             count += 1
+
+    if len(candArr) > locArr.shape[1] or 10 > locArr.shape[1]:
+        print("SIZE IS TOO SMALL!!! RETURNING UNCHANGED ARRAY!")
+        return locArr, 0
+    
     locArr = np.delete(locArr, candArr, 1)
     
     return locArr, count
