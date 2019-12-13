@@ -229,7 +229,7 @@ def get_bn_decay( batch ):
     return bn_decay
 
 class AdversialPointCloud():
-    def __init__(self, num_steps, poolingMethod):
+    def __init__(self, num_steps, poolingMethod, numPoints=BATCH_SIZE):
         self.k = num_steps
         self.poolingMethod = poolingMethod
         
@@ -238,27 +238,30 @@ class AdversialPointCloud():
         self.all_counters = np.zeros((NUM_CLASSES, 3), dtype=int)
         
         # The number of points is not specified
-        self.pointclouds_pl, self.labels_pl = MODEL.placeholder_inputs(BATCH_SIZE, None)
+        self.pointclouds_pl, self.labels_pl = MODEL.placeholder_inputs(numPoints, None)
         self.is_training_pl = tf.placeholder(tf.bool, shape=())
         
         # simple model
         self.pred, self.end_points, _, self.feature_vec = MODEL.get_model( self.pointclouds_pl, self.is_training_pl )
         self.classify_loss = MODEL.get_loss( self.pred, self.labels_pl, self.end_points )
         
-#         self.grad = computeHeatGradient( self.pred, self.feature_vec, testLabel, poolingMethod )
         
     def drop_points(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode):
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
+        delCount = 0
         for i in range(self.k):
             print("ITERATION: ", i)
+            # Setup feed dict for current iteration
+            feed_dict = {self.pointclouds_pl: pcTempResult,
+                     self.labels_pl: labels_pl,
+                     self.is_training_pl: self.is_training}
+#------------------------------------------------------------------------------ 
             # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
             class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
         
             # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
-            maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict={self.pointclouds_pl: pcTempResult,
-                                                  self.labels_pl: labels_pl,
-                                                  self.is_training_pl: self.is_training})
+            maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict=feed_dict)
             maxgradients = tf.squeeze( maxgradients, axis = [0, 2] )
         
             # Average pooling of the weights over all batches
@@ -277,17 +280,35 @@ class AdversialPointCloud():
         
             # ReLU out the negative values
             maxgradients = tf.maximum( maxgradients, 0 )
+#------------------------------------------------------------------------------ 
             
+            ops = {'pred':self.pred,
+                   'loss':self.classify_loss,
+                   'maxgradients':maxgradients}
             # Drop points now
-            heatGradient = sess.run({'maxgradients': maxgradients} ,feed_dict={self.pointclouds_pl: pcTempResult,
-                                                  self.labels_pl: labels_pl,
-                                                  self.is_training_pl: self.is_training} )['maxgradients']
+            pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
+            pred_value = np.argmax(pred_value, 1)
             print("HEAT GRADIENT: ", heatGradient)
+            print("PREDICTION: ", getPrediction(pred_value))
+            print("LOSS: ", loss_value)
 #             print("HEAT GRADIENT: ", heatGradient['maxgradients'])
 #             resultPCloudThresh, delCount = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-            resultPCloudThresh, delCount = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            resultPCloudThresh, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            delCount += Count
             print("DELETED POINTS: ", delCount)
             pcTempResult = copy.deepcopy( resultPCloudThresh )
+        gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
+            
+#             truncGrad = gch.truncate_to_threshold(heatGradient, 'median')
+#             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0', label='Original gradient')
+#             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0o', alpha=0.3)
+#             plt.plot(np.arange(len(heatGradient)), truncGrad, 'C1', label='Truncated gradient')
+#             plt.plot(np.arange(len(heatGradient)), truncGrad, 'C1o', alpha=0.3)
+# #             plt.axhline(y=average, color='r', linestyle='-', label='Average (Zeros ignored)')
+#             plt.axhline(y=gch.get_median(heatGradient), color='b', linestyle='-', label='Median (Zeros ignored)')
+#             plt.legend(title='Gradient value plot:')
+#             plt.show()
+#         gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
             
         return pcTempResult, delCount
 
@@ -303,7 +324,7 @@ def evaluate(num_votes, numsteps):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     config.allow_soft_placement = True
-    config.log_device_placement = True
+    config.log_device_placement = False
     sess = tf.Session(config=config)
 
     # Restore variables from disk.
@@ -346,7 +367,7 @@ def evaluate(num_votes, numsteps):
         
         ## Produce adversarial samples
         cur_batch_data_adv, delCount = attack.drop_points(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "average")
+                                                current_label[start_idx:end_idx], sess, "maxpooling", "median")
         
         for _ in range(num_batches):
             
@@ -464,7 +485,7 @@ def plotTwoResults( pointdata, maxgradients, mode ):
 if __name__ == "__main__":
     with tf.Graph().as_default():
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
-            evaluate(num_votes=1, numsteps=6)
+            evaluate(num_votes=1, numsteps=12)
 #     maxgradients, curPointmaxCloud = train( "maxpooling" )
 #     avggradients, curPointavgCloud = train( "avgpooling" )
 #     maxAvggradients = maxgradients
