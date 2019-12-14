@@ -250,6 +250,10 @@ class AdversialPointCloud():
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = 0
+        
+        # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
+        class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
+            
         for i in range(self.k):
             print("ITERATION: ", i)
             # Setup feed dict for current iteration
@@ -257,9 +261,6 @@ class AdversialPointCloud():
                      self.labels_pl: labels_pl,
                      self.is_training_pl: self.is_training}
 #------------------------------------------------------------------------------ 
-            # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
-            class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
-        
             # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
             maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict=feed_dict)
             maxgradients = tf.squeeze( maxgradients, axis = [0, 2] )
@@ -272,10 +273,10 @@ class AdversialPointCloud():
         #     maxgradients = tf.squeeze(tf.map_fn(lambda x: x[100:101], maxgradients)) # Stride pooling
         
             # Multiply with original pre maxpool feature vector to get weights
-            squeezedFeat = tf.squeeze( self.feature_vec, axis = [0, 2] )    # Remove empty dimensions of the feature vector so we get [batch_size,1024]
-            multiply = tf.constant( squeezedFeat[1].get_shape().as_list() )    # Feature vector matrix
+            feature_vector = tf.squeeze( self.feature_vec, axis = [0, 2] )    # Remove empty dimensions of the feature vector so we get [batch_size,1024]
+            multiply = tf.constant( feature_vector[1].get_shape().as_list() )    # Feature vector matrix
             multMatrix = tf.reshape( tf.tile( maxgradients, multiply ), [ multiply[0], maxgradients.get_shape().as_list()[0]] )    # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
-            maxgradients = tf.matmul( squeezedFeat, multMatrix )    # Multiply [batch_size, 1024] x [1024, batch_size]
+            maxgradients = tf.matmul( feature_vector, multMatrix )    # Multiply [batch_size, 1024] x [1024, batch_size]
             maxgradients = tf.diag_part( maxgradients )    # Due to Matmul the interesting values are on the diagonal part of the matrix.
         
             # ReLU out the negative values
@@ -288,13 +289,14 @@ class AdversialPointCloud():
             # Drop points now
             pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
             pred_value = np.argmax(pred_value, 1)
-            print("HEAT GRADIENT: ", heatGradient)
+            
+            # Perform visual stuff here
+#             resultPCloudThresh, delCount = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
+            resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            delCount += Count
+            print("MAX GRADIENTS: ", maxgradients)
             print("PREDICTION: ", getPrediction(pred_value))
             print("LOSS: ", loss_value)
-#             print("HEAT GRADIENT: ", heatGradient['maxgradients'])
-#             resultPCloudThresh, delCount = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-            resultPCloudThresh, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
-            delCount += Count
             print("DELETED POINTS: ", delCount)
             pcTempResult = copy.deepcopy( resultPCloudThresh )
         gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
@@ -326,6 +328,13 @@ def evaluate(num_votes, numsteps):
     config.allow_soft_placement = True
     config.log_device_placement = False
     sess = tf.Session(config=config)
+    
+    # Init variables
+    init = tf.global_variables_initializer()
+    # To fix the bug introduced in TF 0.12.1 as in
+    # http://stackoverflow.com/questions/41543774/invalidargumenterror-for-tensor-bool-tensorflow-0-12-1
+    # sess.run(init)
+    sess.run( init, {attack.is_training_pl: False} )
 
     # Restore variables from disk.
     trained_model = os.path.join( LOG_DIR, "model.ckpt" )

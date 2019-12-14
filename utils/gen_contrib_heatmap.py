@@ -94,6 +94,7 @@ def delete_randon_points(numPoints, inputArr):
 
 def delete_above_threshold(inputheatMap, inputArr, mode):
     locArr = copy.deepcopy(inputArr)
+    locHeat = copy.deepcopy(inputheatMap)
     candArr = []
     threshold = None
     count = 0
@@ -109,8 +110,9 @@ def delete_above_threshold(inputheatMap, inputArr, mode):
             candArr.append(index)
             count += 1
     locArr = np.delete(locArr, candArr, 1)
+    locHeat = np.delete(locHeat, candArr, 0)
     
-    return locArr, count
+    return locArr, locHeat, count
 
 def delete_below_threshold(inputheatMap, inputArr, mode):
     locArr = copy.deepcopy(inputArr)
@@ -163,7 +165,6 @@ def draw_heatcloud(inpCloud, hitCheckArr, mode):
     hitCheckArr = truncate_to_threshold(hitCheckArr, mode)
     pColors = np.zeros((len(hitCheckArr),3),dtype=float)
     maxColVal = max(hitCheckArr)
-#     print('maxColVal: %s' % maxColVal)
     for index in range(len(inpCloud[0])):
         try:
             curVal = hitCheckArr[index]
