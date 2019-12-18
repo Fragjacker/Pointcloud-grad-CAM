@@ -245,14 +245,38 @@ class AdversialPointCloud():
         self.pred, self.end_points, _, self.feature_vec = MODEL.get_model( self.pointclouds_pl, self.is_training_pl )
         self.classify_loss = MODEL.get_loss( self.pred, self.labels_pl, self.end_points )
         
-        
-    def drop_points(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode):
+        # Store data for heat cloud drawing
+        self.heatGradient = None
+        self.reducedPC = None
+
+    def getGradient(self, sess, poolingMode, class_activation_vector, feed_dict):
+        # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
+        maxgradients = sess.run(tf.gradients(ys=class_activation_vector, xs=self.feature_vec)[0], feed_dict=feed_dict)
+        maxgradients = tf.squeeze(maxgradients, axis=[0, 2])
+    # Average pooling of the weights over all batches
+        if poolingMode == "avgpooling":
+            maxgradients = tf.reduce_mean(maxgradients, axis=1) # Average pooling
+        elif poolingMode == "maxpooling":
+            maxgradients = tf.reduce_max(maxgradients, axis=1) # Max pooling
+    #             maxgradients = tf.squeeze(tf.map_fn(lambda x: x[100:101], maxgradients)) # Stride pooling
+    # Multiply with original pre maxpool feature vector to get weights
+        feature_vector = tf.squeeze(self.feature_vec, axis=[0, 2]) # Remove empty dimensions of the feature vector so we get [batch_size,1024]
+        multiply = tf.constant(feature_vector[1].get_shape().as_list()) # Feature vector matrix
+        multMatrix = tf.reshape(tf.tile(maxgradients, multiply), [multiply[0], maxgradients.get_shape().as_list()[0]]) # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
+        maxgradients = tf.matmul(feature_vector, multMatrix) # Multiply [batch_size, 1024] x [1024, batch_size]
+        maxgradients = tf.diag_part(maxgradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
+    # ReLU out the negative values
+        maxgradients = tf.maximum(maxgradients, 0)
+        return maxgradients
+
+    def drop_points(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints=0):
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = 0
         
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
-        class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
+#         class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
+        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ))
             
         for i in range(self.k):
             print("ITERATION: ", i)
@@ -260,28 +284,8 @@ class AdversialPointCloud():
             feed_dict = {self.pointclouds_pl: pcTempResult,
                      self.labels_pl: labels_pl,
                      self.is_training_pl: self.is_training}
-#------------------------------------------------------------------------------ 
-            # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
-            maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict=feed_dict)
-            maxgradients = tf.squeeze( maxgradients, axis = [0, 2] )
-        
-            # Average pooling of the weights over all batches
-            if poolingMode == "avgpooling":
-                maxgradients = tf.reduce_mean( maxgradients, axis = 1 )    # Average pooling
-            elif poolingMode == "maxpooling":
-                maxgradients = tf.reduce_max( maxgradients, axis = 1 )    # Max pooling
-        #     maxgradients = tf.squeeze(tf.map_fn(lambda x: x[100:101], maxgradients)) # Stride pooling
-        
-            # Multiply with original pre maxpool feature vector to get weights
-            feature_vector = tf.squeeze( self.feature_vec, axis = [0, 2] )    # Remove empty dimensions of the feature vector so we get [batch_size,1024]
-            multiply = tf.constant( feature_vector[1].get_shape().as_list() )    # Feature vector matrix
-            multMatrix = tf.reshape( tf.tile( maxgradients, multiply ), [ multiply[0], maxgradients.get_shape().as_list()[0]] )    # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
-            maxgradients = tf.matmul( feature_vector, multMatrix )    # Multiply [batch_size, 1024] x [1024, batch_size]
-            maxgradients = tf.diag_part( maxgradients )    # Due to Matmul the interesting values are on the diagonal part of the matrix.
-        
-            # ReLU out the negative values
-            maxgradients = tf.maximum( maxgradients, 0 )
-#------------------------------------------------------------------------------ 
+            
+            maxgradients = self.getGradient(sess, poolingMode, class_activation_vector, feed_dict)
             
             ops = {'pred':self.pred,
                    'loss':self.classify_loss,
@@ -290,16 +294,28 @@ class AdversialPointCloud():
             pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
             pred_value = np.argmax(pred_value, 1)
             
+            self.heatGradient = heatGradient
+            self.reducedPC = pcTempResult
+
             # Perform visual stuff here
-#             resultPCloudThresh, delCount = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-            resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
+                resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
+                resultPCloudThresh, heatGradient, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "nonzero":    
+                resultPCloudThresh, heatGradient, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
+            if thresholdMode == "zero":
+                resultPCloudThresh, heatGradient, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
+            if thresholdMode == "random":
+                resultPCloudThresh, heatGradient, Count = gch.delete_randon_points( pcTempResult, numDeletePoints )
+                
             delCount += Count
-            print("MAX GRADIENTS: ", maxgradients)
+            print("GROUND TRUTH: ", getShapeName(classIndex))
             print("PREDICTION: ", getPrediction(pred_value))
             print("LOSS: ", loss_value)
             print("DELETED POINTS: ", delCount)
             pcTempResult = copy.deepcopy( resultPCloudThresh )
-        gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
+#             gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
             
 #             truncGrad = gch.truncate_to_threshold(heatGradient, 'median')
 #             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0', label='Original gradient')
@@ -311,8 +327,10 @@ class AdversialPointCloud():
 #             plt.legend(title='Gradient value plot:')
 #             plt.show()
 #         gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
-            
         return pcTempResult, delCount
+    
+    def drawHeatCloud(self, thresholdMode):
+        gch.draw_heatcloud(self.reducedPC, self.heatGradient, thresholdMode)
 
 def evaluate(num_votes, numsteps):
     is_training = False
@@ -376,7 +394,8 @@ def evaluate(num_votes, numsteps):
         
         ## Produce adversarial samples
         cur_batch_data_adv, delCount = attack.drop_points(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "median")
+                                                current_label[start_idx:end_idx], sess, "maxpooling", "nonzero")
+        attack.drawHeatCloud("+median")
         
         for _ in range(num_batches):
             
@@ -494,7 +513,7 @@ def plotTwoResults( pointdata, maxgradients, mode ):
 if __name__ == "__main__":
     with tf.Graph().as_default():
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
-            evaluate(num_votes=1, numsteps=12)
+            evaluate(num_votes=1, numsteps=7)
 #     maxgradients, curPointmaxCloud = train( "maxpooling" )
 #     avggradients, curPointavgCloud = train( "avgpooling" )
 #     maxAvggradients = maxgradients

@@ -62,6 +62,7 @@ def delete_top_n_points(inputArr, numPoints):
 
 def delete_all_nonzeros(inputheatMap, inputArr):
     locArr = copy.deepcopy(inputArr)
+    locHeat = copy.deepcopy(inputheatMap)
     candArr = []
     count = 0
     for index, eachItem in enumerate(inputheatMap):
@@ -70,13 +71,15 @@ def delete_all_nonzeros(inputheatMap, inputArr):
             count += 1
             
     if len(candArr) > locArr.shape[1] or 10 > locArr.shape[1]:
-        return locArr, 0
+        return locArr, locHeat, 0
     
     locArr = np.delete(locArr, candArr, 1)
-    return locArr, count
+    locHeat = np.delete(locHeat, candArr, 0)
+    return locArr, locHeat, count
 
 def delete_all_zeros(inputheatMap, inputArr):
     locArr = copy.deepcopy(inputArr)
+    locHeat = copy.deepcopy(inputheatMap)
     candArr = []
     count = 0 
     for index, eachItem in enumerate(inputheatMap):
@@ -84,13 +87,14 @@ def delete_all_zeros(inputheatMap, inputArr):
             candArr.append(index)
             count += 1
     locArr = np.delete(locArr, candArr, 1)
-    return locArr, count
+    locHeat = np.delete(locHeat, candArr, 0)
+    return locArr, locHeat, count
 
-def delete_randon_points(numPoints, inputArr):
+def delete_randon_points(inputArr, numPoints):
     locArr = copy.deepcopy(inputArr)
     randomArr = random.sample(range(inputArr.shape[1]), numPoints)
     locArr = np.delete(locArr, randomArr, 1)
-    return locArr
+    return locArr, randomArr
 
 def delete_above_threshold(inputheatMap, inputArr, mode):
     locArr = copy.deepcopy(inputArr)
@@ -98,11 +102,11 @@ def delete_above_threshold(inputheatMap, inputArr, mode):
     candArr = []
     threshold = None
     count = 0
-    if mode == "average":
+    if mode == "+average":
         threshold = get_average(inputheatMap)
-    elif mode == "median":
+    elif mode == "+median":
         threshold = get_median(inputheatMap)
-    elif mode =="midrange":
+    elif mode =="+midrange":
         threshold = get_midrange(inputheatMap)
         
     for index, eachItem in enumerate(inputheatMap):
@@ -116,15 +120,16 @@ def delete_above_threshold(inputheatMap, inputArr, mode):
 
 def delete_below_threshold(inputheatMap, inputArr, mode):
     locArr = copy.deepcopy(inputArr)
+    locHeat = copy.deepcopy(inputheatMap)
     candArr = []
     threshold = None
     count = 0
     
-    if mode == "average":
+    if mode == "-average":
         threshold = get_average(inputheatMap)
-    elif mode == "median":
+    elif mode == "-median":
         threshold = get_median(inputheatMap)
-    elif mode =="midrange":
+    elif mode =="-midrange":
         threshold = get_midrange(inputheatMap)
     
     for index, eachItem in enumerate(inputheatMap):
@@ -134,21 +139,22 @@ def delete_below_threshold(inputheatMap, inputArr, mode):
 
     if len(candArr) > locArr.shape[1] or 10 > locArr.shape[1]:
         print("SIZE IS TOO SMALL!!! RETURNING UNCHANGED ARRAY!")
-        return locArr, 0
+        return locArr, locHeat, 0
     
     locArr = np.delete(locArr, candArr, 1)
+    locHeat = np.delete(locHeat, candArr, 0)
     
-    return locArr, count
+    return locArr, locHeat, count
 
 def truncate_to_threshold(inputArr, mode):
     newArr = []
     counter = 0
     
-    if mode == "average":
+    if mode == "+average" or mode == "-average":
         threshold = get_average(inputArr)
-    elif mode == "median":
+    elif mode == "+median" or mode == "-median":
         threshold = get_median(inputArr)
-    elif mode =="midrange":
+    elif mode == "+midrange" or mode == "-midrange":
         threshold = get_midrange(inputArr)
     
     for index in range(len(inputArr)):
