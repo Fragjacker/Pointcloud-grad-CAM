@@ -315,7 +315,6 @@ class AdversialPointCloud():
             print("LOSS: ", loss_value)
             print("DELETED POINTS: ", delCount)
             pcTempResult = copy.deepcopy( resultPCloudThresh )
-#             gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
             
 #             truncGrad = gch.truncate_to_threshold(heatGradient, 'median')
 #             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0', label='Original gradient')
@@ -328,6 +327,80 @@ class AdversialPointCloud():
 #             plt.show()
 #         gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
         return pcTempResult, delCount
+    
+    def drop_and_store_results(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints=0):
+        pcTempResult = pointclouds_pl.copy()
+        classIndex = testLabel
+        delCount = 0
+        
+        # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
+        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ))
+            
+        for i in range(self.k):
+            print("ITERATION: ", i)
+            # Setup feed dict for current iteration
+            feed_dict = {self.pointclouds_pl: pcTempResult,
+                     self.labels_pl: labels_pl,
+                     self.is_training_pl: self.is_training}
+            
+            maxgradients = self.getGradient(sess, poolingMode, class_activation_vector, feed_dict)
+            
+            ops = {'pred':self.pred,
+                   'loss':self.classify_loss,
+                   'maxgradients':maxgradients}
+            # Drop points now
+            pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
+            pred_value = np.argmax(pred_value, 1)
+            
+            self.heatGradient = heatGradient
+            self.reducedPC = pcTempResult
+
+            # Perform visual stuff here
+            if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
+                resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
+                resultPCloudThresh, heatGradient, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "nonzero":    
+                resultPCloudThresh, heatGradient, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
+            if thresholdMode == "zero":
+                resultPCloudThresh, heatGradient, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
+            if thresholdMode == "random":
+                resultPCloudThresh, heatGradient, Count = gch.delete_randon_points( pcTempResult, numDeletePoints )
+                
+            delCount += Count
+            print("GROUND TRUTH: ", getShapeName(classIndex))
+            print("PREDICTION: ", getPrediction(pred_value))
+            print("LOSS: ", loss_value)
+            print("DELETED POINTS: ", delCount)
+            pcTempResult = copy.deepcopy( resultPCloudThresh )
+            
+            #===================================================================
+            # Evaluate over n batches now to get the accuracy for this iteration.
+            #===================================================================
+            total_correct = 0
+            total_seen = 0
+            loss_sum = 0
+            batch_loss_sum_adv = 0 # sum of losses for the batch
+            pcEvalTest = copy.deepcopy( pcTempResult )
+            feed_dict2 = {self.pointclouds_pl: pcEvalTest,
+                     self.labels_pl: labels_pl,
+                     self.is_training_pl: self.is_training}
+            for _ in range(numTestBatchSize):
+                pcEvalTest = provider.rotate_point_cloud_XYZ(pcEvalTest)
+                pred_val_adv, loss_val_adv  = sess.run([ops['pred'], ops['loss']],
+                                          feed_dict=feed_dict2)
+                batch_loss_sum_adv += (loss_val_adv * 1 / float(numTestBatchSize))
+            pred_val_adv = np.argmax(pred_val_adv, 1)
+            correct = np.sum(pred_val_adv == labels_pl)
+            print("LABEL: ", labels_pl)
+            print("EVAL PREDICTION: ", pred_val_adv)
+            print("CORRECT? :", correct)
+            total_correct += correct
+            total_seen += 1
+            loss_sum += batch_loss_sum_adv
+            
+            testSetName = "_XYZ_"+thresholdMode
+            storeTestResults( testSetName, total_correct, total_seen, loss_sum, pred_val_adv )
     
     def drawHeatCloud(self, thresholdMode):
         gch.draw_heatcloud(self.reducedPC, self.heatGradient, thresholdMode)
@@ -393,81 +466,12 @@ def evaluate(num_votes, numsteps):
         print(file_size)
         
         ## Produce adversarial samples
-        cur_batch_data_adv, delCount = attack.drop_points(current_data[start_idx:end_idx, :, :], 
+#         cur_batch_data_adv, delCount = attack.drop_points(current_data[start_idx:end_idx, :, :], 
+#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "nonzero")
+        attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
                                                 current_label[start_idx:end_idx], sess, "maxpooling", "nonzero")
-        attack.drawHeatCloud("+median")
-        
-        for _ in range(num_batches):
-            
-            
-            # Aggregating BEG
-            batch_loss_sum = 0 # sum of losses for the batch
-            batch_pred_sum = np.zeros((cur_batch_size, NUM_CLASSES)) # score for classes
-            batch_pred_classes = np.zeros((cur_batch_size, NUM_CLASSES)) # 0/1 for classes
-            
-            ## Natural data
-            for vote_idx in range(num_votes):
-                rotated_data = provider.rotate_point_cloud_XYZ(current_data[start_idx:end_idx, :, :])
-                feed_dict = {ops['pointclouds_pl']: rotated_data,
-                             ops['labels_pl']: current_label[start_idx:end_idx],
-                             ops['is_training_pl']: is_training}
-                loss_val, pred_val = sess.run([ops['loss'], ops['pred']],
-                                          feed_dict=feed_dict)
-                batch_pred_sum += pred_val
-                batch_pred_val = np.argmax(pred_val, 1)
-                for el_idx in range(cur_batch_size):
-                    batch_pred_classes[el_idx, batch_pred_val[el_idx]] += 1
-                batch_loss_sum += (loss_val * cur_batch_size / float(num_votes))
-            pred_val = np.argmax(batch_pred_sum, 1)
-            
-            ## Adversarial data
-            
-            batch_loss_sum_adv = 0 # sum of losses for the batch
-            batch_pred_sum_adv = np.zeros((cur_batch_size, NUM_CLASSES)) # score for classes
-            batch_pred_classes_adv = np.zeros((cur_batch_size, NUM_CLASSES)) # 0/1 for classes
-            
-            for vote_idx in range(num_votes):
-                rotated_data = provider.rotate_point_cloud_XYZ(cur_batch_data_adv)
-                feed_dict = {ops['pointclouds_pl']: rotated_data,
-                             ops['labels_pl']: current_label[start_idx:end_idx],
-                             ops['is_training_pl']: is_training}
-                loss_val_adv, pred_val_adv = sess.run([ops['loss'], ops['pred']],
-                                          feed_dict=feed_dict)
-                batch_pred_sum_adv += pred_val_adv
-                batch_pred_val_adv = np.argmax(pred_val_adv, 1)
-                for el_idx in range(cur_batch_size):
-                    batch_pred_classes_adv[el_idx, batch_pred_val_adv[el_idx]] += 1
-                batch_loss_sum_adv += (loss_val_adv * cur_batch_size / float(num_votes))
-            pred_val_adv = np.argmax(batch_pred_sum_adv, 1)
+#         attack.drawHeatCloud("+median")
 
-#             attack.plot_natural_and_advsarial_samples_all_situation(current_data[start_idx:end_idx, :, :], cur_batch_data_adv, 
-#                                                       current_label[start_idx:end_idx], pred_val, pred_val_adv)
-            correct = np.sum(pred_val_adv == current_label[start_idx:end_idx])
-            # correct = np.sum(pred_val_topk[:,0:topk] == label_val)
-            total_correct += correct
-            total_seen += cur_batch_size
-            loss_sum += batch_loss_sum_adv
-
-            for i in range(start_idx, end_idx):
-                l = current_label[i]
-                total_seen_class[l] += 1
-                total_correct_class[l] += (pred_val_adv[i-start_idx] == l)
-                
-                # if pred_val[i-start_idx] != l and FLAGS.visu: # ERROR CASE, DUMP!
-                    # img_filename = '%d_label_%s_pred_%s.jpg' % (error_cnt, SHAPE_NAMES[l],
-                                                           # SHAPE_NAMES[pred_val[i-start_idx]])
-                    # img_filename = os.path.join(DUMP_DIR, img_filename)
-                    # output_img = pc_util.point_cloud_three_views(np.squeeze(current_data[i, :, :]))
-                    # scipy.misc.imsave(img_filename, output_img)
-                    # error_cnt += 1
-                
-    log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
-    log_string('eval accuracy: %f' % (total_correct / float(total_seen)))
-#     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
-    
-    class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-#     for i, name in enumerate(SHAPE_NAMES):
-#         log_string('%10s:\t%0.3f' % (name, class_accuracies[i]))
 
 def plotResults( inputArray, labelName, mode ):
     plt.plot( np.arange( len( inputArray ) ), inputArray, label = mode )
