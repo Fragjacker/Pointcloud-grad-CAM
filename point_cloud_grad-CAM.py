@@ -30,7 +30,7 @@ import test_data_handler as tdh
 usePreviousSession = True    # --Set this to true to use a previously trained model.
 performTraining = False    # --Set this to true to train the model. Set to false to only test the pretrained model.
 desiredLabel = 1    # --The index of the class label the object should be tested against.
-numTestBatchSize = 1000    # --Amount of tests for the current test label object.
+numTestBatchSize = 500    # --Amount of tests for the current test label object.
 maxNumPoints = 2048    # --How many points should be considered? [256/512/1024/2048] [default: 1024]
 
 #===============================================================================
@@ -131,19 +131,19 @@ def storeTestResults( mode, total_correct, total_seen, loss_sum, pred_val ):
     '''
     This function stores the test data into seperate files for later retrieval.
     '''
-    curShape = getShapeName(testLabel)
-    savePath = os.path.join(os.path.split(__file__)[0], "testdata" , curShape)
-    if not os.path.exists(savePath):
-        os.makedirs(savePath)
+    curShape = getShapeName( testLabel )
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
+    if not os.path.exists( savePath ):
+        os.makedirs( savePath )
     mean_loss = loss_sum / float( total_seen )
     accuracy = total_correct / float( total_seen )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_meanloss")
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_meanloss" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, mean_loss )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_accuracy")
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_accuracy" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, accuracy )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_prediction")
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_prediction" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, pred_val )
     log_string( 'eval mean loss: %f' % mean_loss )
@@ -232,70 +232,70 @@ def get_bn_decay( batch ):
     return bn_decay
 
 class AdversialPointCloud():
-    def __init__(self, num_steps, numPoints=BATCH_SIZE):
+    def __init__( self, num_steps, numPoints = BATCH_SIZE ):
         self.k = num_steps
-        
+
         self.is_training = False
-        self.count = np.zeros((NUM_CLASSES, ), dtype=bool)
-        self.all_counters = np.zeros((NUM_CLASSES, 3), dtype=int)
-        
+        self.count = np.zeros( ( NUM_CLASSES, ), dtype = bool )
+        self.all_counters = np.zeros( ( NUM_CLASSES, 3 ), dtype = int )
+
         # The number of points is not specified
-        self.pointclouds_pl, self.labels_pl = MODEL.placeholder_inputs(numPoints, None)
-        self.is_training_pl = tf.placeholder(tf.bool, shape=())
-        
+        self.pointclouds_pl, self.labels_pl = MODEL.placeholder_inputs( numPoints, None )
+        self.is_training_pl = tf.placeholder( tf.bool, shape = () )
+
         # simple model
         self.pred, self.end_points, _, self.feature_vec = MODEL.get_model( self.pointclouds_pl, self.is_training_pl )
         self.classify_loss = MODEL.get_loss( self.pred, self.labels_pl, self.end_points )
-        
+
         # Store data for heat cloud drawing
         self.heatGradient = None
         self.reducedPC = None
 
-    def getGradient(self, sess, poolingMode, class_activation_vector, feed_dict):
+    def getGradient( self, sess, poolingMode, class_activation_vector, feed_dict ):
         # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
-        maxgradients = sess.run(tf.gradients(ys=class_activation_vector, xs=self.feature_vec)[0], feed_dict=feed_dict)
-        maxgradients = tf.squeeze(maxgradients, axis=[0, 2])
+        maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict = feed_dict )
+        maxgradients = tf.squeeze( maxgradients, axis = [0, 2] )
     # Average pooling of the weights over all batches
         if poolingMode == "avgpooling":
-            maxgradients = tf.reduce_mean(maxgradients, axis=1) # Average pooling
+            maxgradients = tf.reduce_mean( maxgradients, axis = 1 )    # Average pooling
         elif poolingMode == "maxpooling":
-            maxgradients = tf.reduce_max(maxgradients, axis=1) # Max pooling
+            maxgradients = tf.reduce_max( maxgradients, axis = 1 )    # Max pooling
     #             maxgradients = tf.squeeze(tf.map_fn(lambda x: x[100:101], maxgradients)) # Stride pooling
     # Multiply with original pre maxpool feature vector to get weights
-        feature_vector = tf.squeeze(self.feature_vec, axis=[0, 2]) # Remove empty dimensions of the feature vector so we get [batch_size,1024]
-        multiply = tf.constant(feature_vector[1].get_shape().as_list()) # Feature vector matrix
-        multMatrix = tf.reshape(tf.tile(maxgradients, multiply), [multiply[0], maxgradients.get_shape().as_list()[0]]) # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
-        maxgradients = tf.matmul(feature_vector, multMatrix) # Multiply [batch_size, 1024] x [1024, batch_size]
-        maxgradients = tf.diag_part(maxgradients) # Due to Matmul the interesting values are on the diagonal part of the matrix.
+        feature_vector = tf.squeeze( self.feature_vec, axis = [0, 2] )    # Remove empty dimensions of the feature vector so we get [batch_size,1024]
+        multiply = tf.constant( feature_vector[1].get_shape().as_list() )    # Feature vector matrix
+        multMatrix = tf.reshape( tf.tile( maxgradients, multiply ), [multiply[0], maxgradients.get_shape().as_list()[0]] )    # Reshape [batch_size,] to [1024, batch_size] by copying the row n times
+        maxgradients = tf.matmul( feature_vector, multMatrix )    # Multiply [batch_size, 1024] x [1024, batch_size]
+        maxgradients = tf.diag_part( maxgradients )    # Due to Matmul the interesting values are on the diagonal part of the matrix.
     # ReLU out the negative values
-        maxgradients = tf.maximum(maxgradients, 0)
+        maxgradients = tf.maximum( maxgradients, 0 )
         return maxgradients
 
-    def drop_points(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints=0):
+    def drop_points( self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints = 0 ):
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = 0
-        
+
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
 #         class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
-        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ))
-            
-        for i in range(self.k):
-            print("ITERATION: ", i)
+        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
+
+        for i in range( self.k ):
+            print( "ITERATION: ", i )
             # Setup feed dict for current iteration
             feed_dict = {self.pointclouds_pl: pcTempResult,
                      self.labels_pl: labels_pl,
                      self.is_training_pl: self.is_training}
-            
-            maxgradients = self.getGradient(sess, poolingMode, class_activation_vector, feed_dict)
-            
+
+            maxgradients = self.getGradient( sess, poolingMode, class_activation_vector, feed_dict )
+
             ops = {'pred':self.pred,
                    'loss':self.classify_loss,
                    'maxgradients':maxgradients}
             # Drop points now
-            pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
-            pred_value = np.argmax(pred_value, 1)
-            
+            pred_value, loss_value, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']] , feed_dict = feed_dict )
+            pred_value = np.argmax( pred_value, 1 )
+
             self.heatGradient = heatGradient
             self.reducedPC = pcTempResult
 
@@ -304,20 +304,20 @@ class AdversialPointCloud():
                 resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
             if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
                 resultPCloudThresh, heatGradient, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-            if thresholdMode == "nonzero":    
+            if thresholdMode == "nonzero":
                 resultPCloudThresh, heatGradient, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
             if thresholdMode == "zero":
                 resultPCloudThresh, heatGradient, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
             if thresholdMode == "random":
                 resultPCloudThresh, heatGradient, Count = gch.delete_randon_points( pcTempResult, numDeletePoints )
-                
+
             delCount += Count
-            print("GROUND TRUTH: ", getShapeName(classIndex))
-            print("PREDICTION: ", getPrediction(pred_value))
-            print("LOSS: ", loss_value)
-            print("DELETED POINTS: ", delCount)
+            print( "GROUND TRUTH: ", getShapeName( classIndex ) )
+            print( "PREDICTION: ", getPrediction( pred_value ) )
+            print( "LOSS: ", loss_value )
+            print( "DELETED POINTS: ", delCount )
             pcTempResult = copy.deepcopy( resultPCloudThresh )
-            
+
 #             truncGrad = gch.truncate_to_threshold(heatGradient, 'median')
 #             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0', label='Original gradient')
 #             plt.plot(np.arange(len(heatGradient)), heatGradient, 'C0o', alpha=0.3)
@@ -329,101 +329,103 @@ class AdversialPointCloud():
 #             plt.show()
 #         gch.draw_heatcloud(pcTempResult, heatGradient, thresholdMode)
         return pcTempResult, delCount
-    
-    def drop_and_store_results(self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints=None):
+
+    def drop_and_store_results( self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints = None ):
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = []
-        
+        vipPointsArr = []
+
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
-        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ))
-            
-        for i in range(self.k):
-            print("ITERATION: ", i)
+        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
+
+        for i in range( self.k ):
+            print( "ITERATION: ", i )
             # Setup feed dict for current iteration
             feed_dict = {self.pointclouds_pl: pcTempResult,
                      self.labels_pl: labels_pl,
                      self.is_training_pl: self.is_training}
-            
-            maxgradients = self.getGradient(sess, poolingMode, class_activation_vector, feed_dict)
-            
+
+            maxgradients = self.getGradient( sess, poolingMode, class_activation_vector, feed_dict )
+
             ops = {'pred':self.pred,
                    'loss':self.classify_loss,
                    'maxgradients':maxgradients}
             # Drop points now
-            pred_value, loss_value, heatGradient = sess.run([ops['pred'],ops['loss'],ops['maxgradients']] ,feed_dict=feed_dict )
-            pred_value = np.argmax(pred_value, 1)
-            
+            pred_value, loss_value, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']] , feed_dict = feed_dict )
+            pred_value = np.argmax( pred_value, 1 )
+
             self.heatGradient = heatGradient
             self.reducedPC = pcTempResult
-
+            gch.draw_heatcloud(pcTempResult, heatGradient, "+median")
+            
             # Perform visual stuff here
             if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
-                resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
             if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
-                resultPCloudThresh, heatGradient, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-            if thresholdMode == "nonzero":    
-                resultPCloudThresh, heatGradient, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "nonzero":
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
             if thresholdMode == "zero":
-                resultPCloudThresh, heatGradient, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
             if thresholdMode == "+random" or thresholdMode == "-random":
                 resultPCloudThresh, heatGradient = gch.delete_randon_points( pcTempResult, numDeletePoints[i] )
                 Count = numDeletePoints[i]
-                
-            delCount.append(Count)
-            print("GROUND TRUTH: ", getShapeName(classIndex))
-            print("PREDICTION: ", getPrediction(pred_value))
-            print("LOSS: ", loss_value)
-            print("DELETED POINTS: ", delCount)
+
+            delCount.append( Count )
+#             np.concatenate((vipPointsArr, vipPointsArr))
+            vipPointsArr.extend(vipPointsArr)
+            print("vipPointsArr: ", vipPointsArr)
+            print( "GROUND TRUTH: ", getShapeName( classIndex ) )
+            print( "PREDICTION: ", getPrediction( pred_value ) )
+            print( "LOSS: ", loss_value )
+            print( "DELETED POINTS: ", delCount )
             pcTempResult = copy.deepcopy( resultPCloudThresh )
-            
             #===================================================================
             # Evaluate over n batches now to get the accuracy for this iteration.
             #===================================================================
             total_correct = 0
             total_seen = 0
             loss_sum = 0
-            batch_loss_sum_adv = 0 # sum of losses for the batch
+            batch_loss_sum_adv = 0    # sum of losses for the batch
             pcEvalTest = copy.deepcopy( pcTempResult )
             feed_dict2 = {self.pointclouds_pl: pcEvalTest,
                      self.labels_pl: labels_pl,
                      self.is_training_pl: self.is_training}
-            for _ in range(numTestBatchSize):
-                pcEvalTest = provider.rotate_point_cloud_XYZ(pcEvalTest)
-                pred_val_adv, loss_val_adv  = sess.run([ops['pred'], ops['loss']],
-                                          feed_dict=feed_dict2)
-                batch_loss_sum_adv += (loss_val_adv * 1 / float(numTestBatchSize))
-            pred_val_adv = np.argmax(pred_val_adv, 1)
-            correct = np.sum(pred_val_adv == labels_pl)
-            print("LABEL: ", labels_pl)
-            print("EVAL PREDICTION: ", pred_val_adv)
-            print("CORRECT? :", correct)
-            total_correct += correct
-            total_seen += 1
-            loss_sum += batch_loss_sum_adv
-            
-            testSetName = "XYZ_"+thresholdMode
-            storeTestResults( testSetName, total_correct, total_seen, loss_sum, pred_val_adv )
-        return delCount
-    
-    def drawHeatCloud(self, thresholdMode):
-        gch.draw_heatcloud(self.reducedPC, self.heatGradient, thresholdMode)
+            for _ in range( numTestBatchSize ):
+                pcEvalTest = provider.rotate_point_cloud_XYZ( pcEvalTest )
+                pred_val_adv, loss_val_adv = sess.run( [ops['pred'], ops['loss']],
+                                          feed_dict = feed_dict2 )
+                batch_loss_sum_adv += ( loss_val_adv * 1 / float( numTestBatchSize ) )
+                pred_val_adv = np.argmax( pred_val_adv, 1 )
+                correct = np.sum( pred_val_adv == labels_pl )
+                total_correct += correct
+                total_seen += 1
+                loss_sum += batch_loss_sum_adv
 
-def evaluate(num_votes, numsteps):
+#             testSetName = "XYZ_" + thresholdMode
+#             storeTestResults( testSetName, total_correct, total_seen, loss_sum, pred_val_adv )
+        return delCount
+
+    def drawHeatCloud( self, thresholdMode ):
+        gch.draw_heatcloud( self.reducedPC, self.heatGradient, thresholdMode )
+
+def evaluate( numsteps ):
+    global testLabel
     is_training = False
     num_steps = numsteps
-    adversarial_attack = AdversialPointCloud(num_steps)
+    adversarial_attack = AdversialPointCloud( num_steps )
 
     # Add ops to save and restore all the variables.
     saver = tf.train.Saver()
-        
+
     # Create a session
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     config.allow_soft_placement = True
     config.log_device_placement = False
-    sess = tf.Session(config=config)
-    
+    sess = tf.Session( config = config )
+
     # Init variables
     init = tf.global_variables_initializer()
     # To fix the bug introduced in TF 0.12.1 as in
@@ -433,10 +435,10 @@ def evaluate(num_votes, numsteps):
 
     # Restore variables from disk.
     trained_model = os.path.join( LOG_DIR, "model.ckpt" )
-    saver.restore(sess, trained_model)
-    log_string("Model restored.")
+    saver.restore( sess, trained_model )
+    log_string( "Model restored." )
 
-    ## ops built on attributes defined in adversarial_attack
+    # # ops built on attributes defined in adversarial_attack
     ops = {'pointclouds_pl': adversarial_attack.pointclouds_pl,
            'labels_pl': adversarial_attack.labels_pl,
            'is_training_pl': adversarial_attack.is_training_pl,
@@ -445,55 +447,54 @@ def evaluate(num_votes, numsteps):
 
     NUM_POINT = FLAGS.num_point
 #     NUM_POINT_ADV = NUM_POINT - num_drop*num_steps
-    
+
     error_cnt = 0
     is_training = False
     total_correct = 0
     total_seen = 0
     loss_sum = 0
-    total_seen_class = [0 for _ in range(NUM_CLASSES)]
-    total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    for fn in range(1):
-        log_string('----'+str(fn)+'----')
-        current_data, current_label = provider.loadDataFile(TEST_FILES[fn])
-        current_data = current_data[:,0:NUM_POINT,:]
-        current_label = np.squeeze(current_label)
-        print(current_data.shape)
-        
-        batchStart = findCorrectLabel( current_label )
-        start_idx = batchStart * BATCH_SIZE
-        end_idx = (batchStart+1) * BATCH_SIZE
-        cur_batch_size = end_idx - start_idx
-        
-        file_size = current_data.shape[0]
-        num_batches = file_size // BATCH_SIZE
-        print(file_size)
-        
-        ## Produce adversarial samples
-#         cur_batch_data_adv, delCount = adversarial_attack.drop_points(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "nonzero")
-        deletCountnZero = adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "nonzero")
-        deletCountZero = adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "zero")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "+average")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "+median")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "+midrange")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "-average")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "-median")
-#         adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-#                                                 current_label[start_idx:end_idx], sess, "maxpooling", "-midrange")
-        adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "+random", deletCountnZero)
-        adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :], 
-                                                current_label[start_idx:end_idx], sess, "maxpooling", "-random", deletCountZero)
-#         adversarial_attack.drawHeatCloud("+median")
+    total_seen_class = [0 for _ in range( NUM_CLASSES )]
+    total_correct_class = [0 for _ in range( NUM_CLASSES )]
+    for fn in range( 1 ):
+        log_string( '----' + str( fn ) + '----' )
+        current_data, current_label = provider.loadDataFile( TEST_FILES[fn] )
+        current_data = current_data[:, 0:NUM_POINT, :]
+        current_label = np.squeeze( current_label )
 
+        for shapeIndex in range( 1 ):
+#             testLabel = shapeIndex
+            batchStart = findCorrectLabel( current_label )
+            start_idx = batchStart * BATCH_SIZE
+            end_idx = ( batchStart + 1 ) * BATCH_SIZE
+            cur_batch_size = end_idx - start_idx
+
+            file_size = current_data.shape[0]
+            num_batches = file_size // BATCH_SIZE
+
+            # # Produce adversarial samples
+#             cur_batch_data_adv, delCount = adversarial_attack.drop_points( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
+            deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+                                                    current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
+#             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+random", deletCountnZero )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-random", deletCountZero )
+    #         adversarial_attack.drawHeatCloud("+median")
 
 def plotResults( inputArray, labelName, mode ):
     plt.plot( np.arange( len( inputArray ) ), inputArray, label = mode )
@@ -539,64 +540,66 @@ def plotTwoResults( pointdata, maxgradients, mode ):
 if __name__ == "__main__":
     with tf.Graph().as_default():
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
-            evaluate(num_votes=1, numsteps=8)
+            evaluate( numsteps = 8 )
 
-# #     testResultsacc0 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_average_removed_accuracy" )
-# #     testResultsacc1 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_median_removed_accuracy" )
-# #     testResultsacc2 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_midrange_removed_accuracy" )
+#     curShape = getShapeName( testLabel )
+#     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
+#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+average_accuracy" ) )
+#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+median_accuracy" ) )
+#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+midrange_accuracy" ) )
 # #     testResultsacc3 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_average_removed_accuracy" )
 # #     testResultsacc4 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_median_removed_accuracy" )
 # #     testResultsacc5 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_midrange_removed_accuracy" )
-# #     testResultsacc6 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_random_removed_accuracy" )
-#     testResultsacc7 = tdh.readTestFile( "airplane_1000_XYZ_nonzero_accuracy" )
-# #     testResultsloss0 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_average_removed_meanloss" )
-# #     testResultsloss1 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_median_removed_meanloss" )
-# #     testResultsloss2 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_midrange_removed_meanloss" )
+#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+random_accuracy" ) )
+#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_nonzero_accuracy" ) )
+#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+average_meanloss" ) )
+#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+median_meanloss" ) )
+#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+midrange_meanloss" ) )
 # #     testResultsloss3 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_average_removed_meanloss" )
 # #     testResultsloss4 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_median_removed_meanloss" )
 # #     testResultsloss5 = tdh.readTestFile( "airplane_1000_XYZ_avgpooled_midrange_removed_meanloss" )
-# #     testResultsloss6 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_random_removed_meanloss" )
-#     testResultsloss7 = tdh.readTestFile( "airplane_1000_XYZ_nonzero_meanloss" )
-#      
-# #     testResultsacc0 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_average_removed_accuracy" )
-# #     testResultsacc1 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_median_removed_accuracy" )
-# #     testResultsacc2 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_midrange_removed_accuracy" )
-# #     testResultsacc3 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_average_removed_accuracy" )
-# #     testResultsacc4 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_median_removed_accuracy" )
-# #     testResultsacc5 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_midrange_removed_accuracy" )
-# #     testResultsacc6 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_random_removed_accuracy" )
-# #     testResultsacc7 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_zeros_removed_accuracy" )
-# #     testResultsloss0 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_average_removed_meanloss" )
-# #     testResultsloss1 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_median_removed_meanloss" )
-# #     testResultsloss2 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_midrange_removed_meanloss" )
-# #     testResultsloss3 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_average_removed_meanloss" )
-# #     testResultsloss4 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_median_removed_meanloss" )
-# #     testResultsloss5 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_midrange_removed_meanloss" )
-# #     testResultsloss6 = tdh.readTestFile( "airplane_1000_XYZ_maxpooled_random_removed_meanloss" )
-# #     testResultsloss7 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_maxpooled_zeros_removed_meanloss" )
-# #         
-# #     plt.plot( np.arange( len( testResultsacc0 ) ), testResultsacc0, label = "Maxpooled average removed" )
-# #     plt.plot( np.arange( len( testResultsacc1 ) ), testResultsacc1, label = "Maxpooled median removed" )
-# #     plt.plot( np.arange( len( testResultsacc2 ) ), testResultsacc2, label = "Maxpooled midrange removed" )
+#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_+random_meanloss" ) )
+#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_1000_XYZ_nonzero_meanloss" ) )
+# 
+# #     testResultsacc0 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-average_accuracy" ))
+# #     testResultsacc1 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-median_accuracy" ))
+# #     testResultsacc2 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-midrange_accuracy" ))
+# # #     testResultsacc3 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_average_removed_accuracy" )
+# # #     testResultsacc4 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_median_removed_accuracy" )
+# # #     testResultsacc5 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_midrange_removed_accuracy" )
+# #     testResultsacc6 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-random_accuracy" ))
+# #     testResultsacc7 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_zero_accuracy" ))
+# #     testResultsloss0 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-average_meanloss" ))
+# #     testResultsloss1 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-median_meanloss" ))
+# #     testResultsloss2 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-midrange_meanloss" ))
+# # #     testResultsloss3 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_average_removed_meanloss" )
+# # #     testResultsloss4 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_median_removed_meanloss" )
+# # #     testResultsloss5 = tdh.readTestFile( "airplane_1000_XYZ_unimportant_avgpooled_midrange_removed_meanloss" )
+# #     testResultsloss6 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_-random_meanloss" ))
+# #     testResultsloss7 = tdh.readTestFile( os.path.join(savePath,"airplane_1000_XYZ_zero_meanloss" ))
+# 
+#     plt.plot( np.arange( len( testResultsacc0 ) ), testResultsacc0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( testResultsacc1 ) ), testResultsacc1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( testResultsacc2 ) ), testResultsacc2, label = "Maxpooled midrange removed" )
 # #     plt.plot( np.arange( len( testResultsacc3 ) ), testResultsacc3, label = "Averagepooled average removed" )
 # #     plt.plot( np.arange( len( testResultsacc4 ) ), testResultsacc4, label = "Averagepooled median removed" )
 # #     plt.plot( np.arange( len( testResultsacc5 ) ), testResultsacc5, label = "Averagepooled midrange removed" )
-# #     plt.plot( np.arange( len( testResultsacc6 ) ), testResultsacc6, label = "Random removed" )
-#     plt.plot( np.arange( len( testResultsacc7 ) ), testResultsacc7, label = "Zeros removed" )
-#     plt.legend( title = ( "Point removal plot" ) )
+#     plt.plot( np.arange( len( testResultsacc6 ) ), testResultsacc6, label = "Random removed" )
+#     plt.plot( np.arange( len( testResultsacc7 ) ), testResultsacc7, label = "Non Zeros removed" )
+#     plt.legend( title = ( curShape + " point removal plot" ) )
 #     plt.ylabel( "Accuracy" )
 #     plt.xlabel( "Iterations" )
 #     plt.show()
-# #     
-# #     plt.plot( np.arange( len( testResultsloss0 ) ), testResultsloss0, label = "Maxpooled average removed" )
-# #     plt.plot( np.arange( len( testResultsloss1 ) ), testResultsloss1, label = "Maxpooled median removed" )
-# #     plt.plot( np.arange( len( testResultsloss2 ) ), testResultsloss2, label = "Maxpooled midrange removed" )
+# #
+#     plt.plot( np.arange( len( testResultsloss0 ) ), testResultsloss0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( testResultsloss1 ) ), testResultsloss1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( testResultsloss2 ) ), testResultsloss2, label = "Maxpooled midrange removed" )
 # #     plt.plot( np.arange( len( testResultsloss3 ) ), testResultsloss3, label = "Averagepooled average removed" )
 # #     plt.plot( np.arange( len( testResultsloss4 ) ), testResultsloss4, label = "Averagepooled median removed" )
 # #     plt.plot( np.arange( len( testResultsloss5 ) ), testResultsloss5, label = "Averagepooled midrange removed" )
-# #     plt.plot( np.arange( len( testResultsloss6 ) ), testResultsloss6, label = "Random removed" )
-#     plt.plot( np.arange( len( testResultsloss7 ) ), testResultsloss7, label = "Zeros removed" )
-#     plt.legend( title = ( "Point removal plot" ) )
+#     plt.plot( np.arange( len( testResultsloss6 ) ), testResultsloss6, label = "Random removed" )
+#     plt.plot( np.arange( len( testResultsloss7 ) ), testResultsloss7, label = "Non Zeros removed" )
+#     plt.legend( title = ( curShape + " point removal plot" ) )
 #     plt.ylabel( "Loss" )
 #     plt.xlabel( "Iterations" )
 #     plt.show()
