@@ -232,9 +232,7 @@ def get_bn_decay( batch ):
     return bn_decay
 
 class AdversialPointCloud():
-    def __init__( self, num_steps, numPoints = BATCH_SIZE ):
-        self.k = num_steps
-
+    def __init__( self, numPoints = BATCH_SIZE ):
         self.is_training = False
         self.count = np.zeros( ( NUM_CLASSES, ), dtype = bool )
         self.all_counters = np.zeros( ( NUM_CLASSES, 3 ), dtype = int )
@@ -280,7 +278,7 @@ class AdversialPointCloud():
 #         class_activation_vector = tf.tensordot( self.pred, tf.one_hot( indices = classIndex, depth = 40 ), axes = [[1], [0]] )
         class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
 
-        for i in range( self.k ):
+        for i in range( 100 ):
             print( "ITERATION: ", i )
             # Setup feed dict for current iteration
             feed_dict = {self.pointclouds_pl: pcTempResult,
@@ -334,17 +332,18 @@ class AdversialPointCloud():
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = []
-        vipPointsArr = []
+        vipPcPointsArr = []
+        weightArray = []
 
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
         class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
 
-        for i in range( self.k ):
+        for i in range( 100 ):
             print( "ITERATION: ", i )
             # Setup feed dict for current iteration
             feed_dict = {self.pointclouds_pl: pcTempResult,
-                     self.labels_pl: labels_pl,
-                     self.is_training_pl: self.is_training}
+                         self.labels_pl: labels_pl,
+                         self.is_training_pl: self.is_training}
 
             maxgradients = self.getGradient( sess, poolingMode, class_activation_vector, feed_dict )
 
@@ -357,7 +356,6 @@ class AdversialPointCloud():
 
             self.heatGradient = heatGradient
             self.reducedPC = pcTempResult
-            gch.draw_heatcloud(pcTempResult, heatGradient, "+median")
             
             # Perform visual stuff here
             if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
@@ -373,13 +371,8 @@ class AdversialPointCloud():
                 Count = numDeletePoints[i]
 
             delCount.append( Count )
-#             np.concatenate((vipPointsArr, vipPointsArr))
-            vipPointsArr.extend(vipPointsArr)
-            print("vipPointsArr: ", vipPointsArr)
-            print( "GROUND TRUTH: ", getShapeName( classIndex ) )
-            print( "PREDICTION: ", getPrediction( pred_value ) )
-            print( "LOSS: ", loss_value )
-            print( "DELETED POINTS: ", delCount )
+            vipPcPointsArr.extend( vipPointsArr[0] )
+            weightArray.extend( vipPointsArr[1] )
             pcTempResult = copy.deepcopy( resultPCloudThresh )
             #===================================================================
             # Evaluate over n batches now to get the accuracy for this iteration.
@@ -390,8 +383,8 @@ class AdversialPointCloud():
             batch_loss_sum_adv = 0    # sum of losses for the batch
             pcEvalTest = copy.deepcopy( pcTempResult )
             feed_dict2 = {self.pointclouds_pl: pcEvalTest,
-                     self.labels_pl: labels_pl,
-                     self.is_training_pl: self.is_training}
+                          self.labels_pl: labels_pl,
+                          self.is_training_pl: self.is_training}
             for _ in range( numTestBatchSize ):
                 pcEvalTest = provider.rotate_point_cloud_XYZ( pcEvalTest )
                 pred_val_adv, loss_val_adv = sess.run( [ops['pred'], ops['loss']],
@@ -402,19 +395,31 @@ class AdversialPointCloud():
                 total_correct += correct
                 total_seen += 1
                 loss_sum += batch_loss_sum_adv
-
+                
+            print("vipPointsArr: ", vipPointsArr)
+            print( "GROUND TRUTH: ", getShapeName( classIndex ) )
+            print( "PREDICTION: ", getPrediction( pred_value ) )
+            print( "LOSS: ", loss_value )
+            print( "ACCURACY: ", (total_correct / total_seen) )
+            
+            # Stop iterating when the prediction deviates from ground truth
+            if classIndex != pred_value:
+                print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s STEPS" % i)
+                break
+            
 #             testSetName = "XYZ_" + thresholdMode
 #             storeTestResults( testSetName, total_correct, total_seen, loss_sum, pred_val_adv )
+        gch.draw_pointcloud(pcTempResult)
+        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray)
         return delCount
 
     def drawHeatCloud( self, thresholdMode ):
         gch.draw_heatcloud( self.reducedPC, self.heatGradient, thresholdMode )
 
-def evaluate( numsteps ):
+def evaluate():
     global testLabel
     is_training = False
-    num_steps = numsteps
-    adversarial_attack = AdversialPointCloud( num_steps )
+    adversarial_attack = AdversialPointCloud()
 
     # Add ops to save and restore all the variables.
     saver = tf.train.Saver()
@@ -540,7 +545,7 @@ def plotTwoResults( pointdata, maxgradients, mode ):
 if __name__ == "__main__":
     with tf.Graph().as_default():
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
-            evaluate( numsteps = 8 )
+            evaluate()
 
 #     curShape = getShapeName( testLabel )
 #     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )

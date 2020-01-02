@@ -62,33 +62,37 @@ def delete_top_n_points( inputArr, numPoints ):
 
 def delete_all_nonzeros( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
-    resArr = []
+    pointArr = []
+    weightArr = []
     candArr = []
     count = 0
     for index, eachItem in enumerate( inputheatMap ):
         if eachItem > 0:
             candArr.append( index )
-            resArr.append([locArr[0][index],eachItem])
+            pointArr.append(locArr[0][index])
+            weightArr.append(eachItem)           
             count += 1
 
     if len( candArr ) > locArr.shape[1] or 10 > locArr.shape[1]:
-        return locArr, resArr, 0
+        return locArr, [pointArr,weightArr], 0
 
     locArr = np.delete( locArr, candArr, 1 )
-    return locArr, resArr, count
+    return locArr, [pointArr, weightArr], count
 
 def delete_all_zeros( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
-    resArr = []
+    pointArr = []
+    weightArr = []
     candArr = []
     count = 0
     for index, eachItem in enumerate( inputheatMap ):
         if eachItem == 0:
             candArr.append( index )
-            resArr.append([locArr[0][index],eachItem])
+            pointArr.append(locArr[0][index])
+            weightArr.append(eachItem) 
             count += 1
     locArr = np.delete( locArr, candArr, 1 )
-    return locArr, resArr, count
+    return locArr, [pointArr,weightArr], count
 
 def delete_randon_points( inputArr, numPoints ):
     locArr = copy.deepcopy( inputArr )
@@ -98,7 +102,8 @@ def delete_randon_points( inputArr, numPoints ):
 
 def delete_above_threshold( inputheatMap, inputArr, mode ):
     locArr = copy.deepcopy( inputArr )
-    resArr = []
+    pointArr = []
+    weightArr = []
     candArr = []
     threshold = None
     count = 0
@@ -112,16 +117,17 @@ def delete_above_threshold( inputheatMap, inputArr, mode ):
     for index, eachItem in enumerate( inputheatMap ):
         if eachItem > threshold:
             candArr.append( index )
-            resArr.append([locArr[0][index],eachItem])
+            pointArr.append(locArr[0][index])
+            weightArr.append(eachItem) 
             count += 1
     locArr = np.delete( locArr, candArr, axis = 1 )
 
-    return locArr, resArr, count
+    return locArr, [pointArr,weightArr], count
 
 def delete_below_threshold( inputheatMap, inputArr, mode ):
     locArr = copy.deepcopy( inputArr )
     candArr = []
-    resArr = []
+    resArr = np.array([])
     threshold = None
     count = 0
 
@@ -171,7 +177,7 @@ def draw_heatcloud( inpCloud, hitCheckArr, mode ):
     hitCheckArr = truncate_to_threshold( hitCheckArr, mode )
     pColors = np.zeros( ( len( hitCheckArr ), 3 ), dtype = float )
     maxColVal = max( hitCheckArr )
-    for index in range( len( inpCloud[0] ) ):
+    for index in range( len( hitCheckArr ) ):
         try:
             curVal = hitCheckArr[index]
             if curVal == 0:
@@ -186,6 +192,28 @@ def draw_heatcloud( inpCloud, hitCheckArr, mode ):
 
     pcd = PointCloud()
     pcd.points = Vector3dVector( inpCloud[0] )
+    pcd.colors = Vector3dVector( pColors )
+    draw_geometries( [pcd] )
+    
+def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
+    inputWeightArray = truncate_to_threshold( np.array(inputWeightArray), "+midrange" )
+    pColors = np.zeros( ( len( inputWeightArray ), 3 ), dtype = float )
+    maxColVal = max( inputWeightArray )
+    for index in range( len( inputWeightArray ) ):
+        try:
+            curVal = inputWeightArray[index]
+            if curVal == 0:
+                pColors[index] = [0, 0, 0]
+            else:
+                red = curVal / maxColVal
+                green = 1 - ( curVal / maxColVal )
+                pColors[index] = [red, green, 0]
+        except:
+            print( "INVALID VALUE FOR INDEX: ", index )
+            pColors[index] = [0, 0, 0]
+
+    pcd = PointCloud()
+    pcd.points = Vector3dVector( np.array(inputPCArray) )
     pcd.colors = Vector3dVector( pColors )
     draw_geometries( [pcd] )
 
