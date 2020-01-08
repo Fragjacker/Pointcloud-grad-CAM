@@ -94,11 +94,16 @@ def delete_all_zeros( inputheatMap, inputArr ):
     locArr = np.delete( locArr, candArr, 1 )
     return locArr, [pointArr,weightArr], count
 
-def delete_randon_points( inputArr, numPoints ):
+def delete_random_points( inputheatMap, inputArr, numPoints ):
     locArr = copy.deepcopy( inputArr )
+    pointArr = []
+    weightArr = []
     randomArr = random.sample( range( inputArr.shape[1] ), numPoints )
+    for curIndex in randomArr:
+        pointArr.append(locArr[0][curIndex])
+        weightArr.append(inputheatMap[curIndex])
     locArr = np.delete( locArr, randomArr, 1 )
-    return locArr, randomArr
+    return locArr, [pointArr,weightArr]
 
 def delete_above_threshold( inputheatMap, inputArr, mode ):
     locArr = copy.deepcopy( inputArr )
@@ -127,7 +132,8 @@ def delete_above_threshold( inputheatMap, inputArr, mode ):
 def delete_below_threshold( inputheatMap, inputArr, mode ):
     locArr = copy.deepcopy( inputArr )
     candArr = []
-    resArr = np.array([])
+    pointArr = []
+    weightArr = []
     threshold = None
     count = 0
 
@@ -141,16 +147,17 @@ def delete_below_threshold( inputheatMap, inputArr, mode ):
     for index, eachItem in enumerate( inputheatMap ):
         if eachItem < threshold:
             candArr.append( index )
-            resArr.append([locArr[0][index],eachItem])
+            pointArr.append(locArr[0][index])
+            weightArr.append(eachItem) 
             count += 1
 
     if len( candArr ) > locArr.shape[1] or 10 > locArr.shape[1]:
         print( "SIZE IS TOO SMALL!!! RETURNING UNCHANGED ARRAY!" )
-        return locArr, resArr, 0
+        return locArr, [pointArr,weightArr], 0
 
     locArr = np.delete( locArr, candArr, 1 )
 
-    return locArr, resArr, count
+    return locArr, [pointArr,weightArr], count
 
 def truncate_to_threshold( inputArr, mode ):
     newArr = []
