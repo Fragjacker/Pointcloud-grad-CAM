@@ -353,7 +353,6 @@ class AdversialPointCloud():
                    'maxgradients':maxgradients}
             # Drop points now
             pred_value, loss_value, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']] , feed_dict = feed_dict )
-            pred_value = np.argmax( pred_value, 1 )
 
             self.heatGradient = heatGradient
             self.reducedPC = pcTempResult
@@ -400,21 +399,23 @@ class AdversialPointCloud():
                 total_seen += 1
                 loss_sum += eval_loss * BATCH_SIZE
                 
-            print("vipPointsArr: ", vipPointsArr)
             print( "GROUND TRUTH: ", getShapeName( classIndex ) )
             print( "PREDICTION: ", getPrediction( eval_prediction ) )
             print( "LOSS: ", eval_loss )
             print( "ACCURACY: ", (total_correct / total_seen) )
             accuracy = total_correct / float( total_seen )
             # Stop iterating when the eval_prediction deviates from ground truth
-#             if classIndex != pred_value:
-#                 print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s STEPS" % i)
-#                 break
+            if classIndex != eval_prediction:
+                print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s STEPS" % i)
+                break
             
-            testSetName = "XYZ_" + poolingMode + "_" + thresholdMode
-            storeTestResults( testSetName, total_correct, total_seen, loss_sum, eval_prediction )
-#         gch.draw_pointcloud(pcTempResult)
-#         gch.draw_NewHeatcloud(vipPcPointsArr, weightArray)
+#             testSetName = "XYZ_" + poolingMode + "_" + thresholdMode
+#             storeTestResults( testSetName, total_correct, total_seen, loss_sum, eval_prediction )
+        totalRemoved = sum(delCount)
+        print("TOTAL REMOVED POINTS: ", totalRemoved)
+        print("TOTAL REMAINING POINTS: ", maxNumPoints - totalRemoved)
+        gch.draw_pointcloud(pcTempResult)
+        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray)
         return delCount
 
     def drawHeatCloud( self, thresholdMode ):
@@ -486,47 +487,47 @@ def evaluate():
             #===================================================================
             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
                                                     current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
-            deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "+midrange" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "-average" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "-median" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "-midrange" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "+random", deletCountnZero )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "-random", deletCountZero )
+#             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+random", deletCountnZero )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-random", deletCountZero )
             #===================================================================
             # Average pooling
             #===================================================================
-            deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "nonzero" )
-            deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "zero" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "+average" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "+median" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "+midrange" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "-average" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "-median" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "-midrange" )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "+random", deletCountnZero )
-            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "avgpooling", "-random", deletCountZero )
+#             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "nonzero" )
+#             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "zero" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "+average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "+median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "+midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "-average" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "-median" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "-midrange" )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "+random", deletCountnZero )
+#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "avgpooling", "-random", deletCountZero )
 
 def plotResults( inputArray, labelName, mode ):
     plt.plot( np.arange( len( inputArray ) ), inputArray, label = mode )
@@ -574,88 +575,116 @@ if __name__ == "__main__":
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
             evaluate()
 
-    curShape = getShapeName( testLabel )
-    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
-    #===========================================================================
-    # Max pooling
-    #===========================================================================
-    testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_accuracy" ) )
-    testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_accuracy" ) )
-    testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_accuracy" ) )
-    testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_accuracy" ) )
-    testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_accuracy" ) )
-    testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_meanloss" ) )
-    testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_meanloss" ) )
-    testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_meanloss" ) )
-    testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_meanloss" ) )
-    testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_meanloss" ) )
-    
-#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_accuracy" ) )
-#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_accuracy" ) )
-#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_accuracy" ) )
-#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_accuracy" ) )
-#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_accuracy" ) )
-#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_meanloss" ) )
-#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_meanloss" ) )
-#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_meanloss" ) )
-#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_meanloss" ) )
-#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_meanloss" ) )
-    #===============================================================================
-    # Average pooling
-    #===============================================================================
-    avgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_accuracy" ) )
-    avgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_accuracy" ) )
-    avgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_accuracy" ) )
-    avgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_accuracy" ) )
-    avgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_accuracy" ) )
-    avgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_meanloss" ) )
-    avgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_meanloss" ) )
-    avgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_meanloss" ) )
-    avgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_meanloss" ) )
-    avgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_meanloss" ) )
-    
-#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_accuracy" ) )
-#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_accuracy" ) )
-#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_accuracy" ) )
-#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_accuracy" ) )
-#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_zero_accuracy" ) )
-#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_meanloss" ) )
-#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_meanloss" ) )
-#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_meanloss" ) )
-#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_meanloss" ) )
-#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpoolingzero_meanloss" ) )
- 
-    plt.plot( np.arange( len( testResultsacc0 ) ), testResultsacc0, label = "Maxpooled average removed" )
-    plt.plot( np.arange( len( testResultsacc1 ) ), testResultsacc1, label = "Maxpooled median removed" )
-    plt.plot( np.arange( len( testResultsacc2 ) ), testResultsacc2, label = "Maxpooled midrange removed" )
-    plt.plot( np.arange( len( testResultsacc6 ) ), testResultsacc6, label = "Maxpooled Random removed" )
-    plt.plot( np.arange( len( testResultsacc7 ) ), testResultsacc7, label = "Maxpooled Non Zeros removed" )
-    
-    plt.plot( np.arange( len( testResultsacc0 ) ), avgtestResultsacc0, label = "Average pooled average removed" )
-    plt.plot( np.arange( len( testResultsacc1 ) ), avgtestResultsacc1, label = "Average pooled median removed" )
-    plt.plot( np.arange( len( testResultsacc2 ) ), avgtestResultsacc2, label = "Average pooled midrange removed" )
-    plt.plot( np.arange( len( testResultsacc6 ) ), avgtestResultsacc6, label = "Average pooled Random removed" )
-    plt.plot( np.arange( len( testResultsacc7 ) ), avgtestResultsacc7, label = "Average pooled Non Zeros removed" )
-    plt.legend( title = ( curShape + " point removal plot" ) )
-    plt.ylabel( "Accuracy" )
-    plt.xlabel( "Iterations" )
-    plt.show()
-#
-    plt.plot( np.arange( len( testResultsloss0 ) ), testResultsloss0, label = "Maxpooled average removed" )
-    plt.plot( np.arange( len( testResultsloss1 ) ), testResultsloss1, label = "Maxpooled median removed" )
-    plt.plot( np.arange( len( testResultsloss2 ) ), testResultsloss2, label = "Maxpooled midrange removed" )
-    plt.plot( np.arange( len( testResultsloss6 ) ), testResultsloss6, label = "Maxpooled Random removed" )
-    plt.plot( np.arange( len( testResultsloss7 ) ), testResultsloss7, label = "Maxpooled Non Zeros removed" )
-    
-    plt.plot( np.arange( len( testResultsloss0 ) ), avgtestResultsloss0, label = "Average pooled average removed" )
-    plt.plot( np.arange( len( testResultsloss1 ) ), avgtestResultsloss1, label = "Average pooled median removed" )
-    plt.plot( np.arange( len( testResultsloss2 ) ), avgtestResultsloss2, label = "Average pooled midrange removed" )
-    plt.plot( np.arange( len( testResultsloss6 ) ), avgtestResultsloss6, label = "Average pooled Random removed" )
-    plt.plot( np.arange( len( testResultsloss7 ) ), avgtestResultsloss7, label = "Average pooled Non Zeros removed" )
-    plt.legend( title = ( curShape + " point removal plot" ) )
-    plt.ylabel( "Loss" )
-    plt.xlabel( "Iterations" )
-    plt.show()
+#     curShape = getShapeName( testLabel )
+#     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
+#     #===========================================================================
+#     # Max pooling
+#     #===========================================================================
+#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_accuracy" ) )
+#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_accuracy" ) )
+#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_accuracy" ) )
+#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_accuracy" ) )
+#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_accuracy" ) )
+#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_meanloss" ) )
+#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_meanloss" ) )
+#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_meanloss" ) )
+#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_meanloss" ) )
+#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_meanloss" ) )
+#      
+#     vuptestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_accuracy" ) )
+#     vuptestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_accuracy" ) )
+#     vuptestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_accuracy" ) )
+#     vuptestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_accuracy" ) )
+#     vuptestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_accuracy" ) )
+#     vuptestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_meanloss" ) )
+#     vuptestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_meanloss" ) )
+#     vuptestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_meanloss" ) )
+#     vuptestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_meanloss" ) )
+#     vuptestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_meanloss" ) )
+#     #===============================================================================
+#     # Average pooling
+#     #===============================================================================
+#     avgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_accuracy" ) )
+#     avgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_accuracy" ) )
+#     avgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_accuracy" ) )
+#     avgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_accuracy" ) )
+#     avgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_accuracy" ) )
+#     avgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_meanloss" ) )
+#     avgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_meanloss" ) )
+#     avgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_meanloss" ) )
+#     avgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_meanloss" ) )
+#     avgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_meanloss" ) )
+#      
+#     vupavgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_accuracy" ) )
+#     vupavgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_accuracy" ) )
+#     vupavgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_accuracy" ) )
+#     vupavgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_accuracy" ) )
+#     vupavgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_zero_accuracy" ) )
+#     vupavgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_meanloss" ) )
+#     vupavgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_meanloss" ) )
+#     vupavgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_meanloss" ) )
+#     vupavgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_meanloss" ) )
+#     vupavgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_zero_meanloss" ) )
+#   
+#     plt.plot( np.arange( len( testResultsacc0 ) ), testResultsacc0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( testResultsacc1 ) ), testResultsacc1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( testResultsacc2 ) ), testResultsacc2, label = "Maxpooled midrange removed" )
+#     plt.plot( np.arange( len( testResultsacc6 ) ), testResultsacc6, label = "Maxpooled Random removed" )
+#     plt.plot( np.arange( len( testResultsacc7 ) ), testResultsacc7, label = "Maxpooled Non Zeros removed" )
+#     plt.plot( np.arange( len( avgtestResultsacc0 ) ), avgtestResultsacc0, label = "Average pooled average removed" )
+#     plt.plot( np.arange( len( avgtestResultsacc1 ) ), avgtestResultsacc1, label = "Average pooled median removed" )
+#     plt.plot( np.arange( len( avgtestResultsacc2 ) ), avgtestResultsacc2, label = "Average pooled midrange removed" )
+#     plt.plot( np.arange( len( avgtestResultsacc2 ) ), avgtestResultsacc6, label = "Average pooled Random removed" )
+#     plt.plot( np.arange( len( avgtestResultsacc7 ) ), avgtestResultsacc7, label = "Average pooled Non Zeros removed" )
+#     plt.legend( title = ( curShape + " important point removal plot" ) )
+#     plt.ylabel( "Accuracy" )
+#     plt.xlabel( "Iterations" )
+#     plt.show()
+#      
+#     plt.plot( np.arange( len( vuptestResultsacc0 ) ), vuptestResultsacc0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( vuptestResultsacc1 ) ), vuptestResultsacc1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( vuptestResultsacc2 ) ), vuptestResultsacc2, label = "Maxpooled midrange removed" )
+#     plt.plot( np.arange( len( vuptestResultsacc6 ) ), vuptestResultsacc6, label = "Maxpooled Random removed" )
+#     plt.plot( np.arange( len( vuptestResultsacc7 ) ), vuptestResultsacc7, label = "Maxpooled Zeros removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsacc0 ) ), vupavgtestResultsacc0, label = "Average pooled average removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsacc1 ) ), vupavgtestResultsacc1, label = "Average pooled median removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsacc2 ) ), vupavgtestResultsacc2, label = "Average pooled midrange removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsacc6 ) ), vupavgtestResultsacc6, label = "Average pooled Random removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsacc7 ) ), vupavgtestResultsacc7, label = "Average pooled Zeros removed" )
+#     plt.legend( title = ( curShape + " unimportant point removal plot" ) )
+#     plt.ylabel( "Accuracy" )
+#     plt.xlabel( "Iterations" )
+#     plt.show()
+#      
+#     plt.plot( np.arange( len( testResultsloss0 ) ), testResultsloss0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( testResultsloss1 ) ), testResultsloss1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( testResultsloss2 ) ), testResultsloss2, label = "Maxpooled midrange removed" )
+#     plt.plot( np.arange( len( testResultsloss6 ) ), testResultsloss6, label = "Maxpooled Random removed" )
+#     plt.plot( np.arange( len( testResultsloss7 ) ), testResultsloss7, label = "Maxpooled Non Zeros removed" )
+#     plt.plot( np.arange( len( avgtestResultsloss0 ) ), avgtestResultsloss0, label = "Average pooled average removed" )
+#     plt.plot( np.arange( len( avgtestResultsloss1 ) ), avgtestResultsloss1, label = "Average pooled median removed" )
+#     plt.plot( np.arange( len( avgtestResultsloss2 ) ), avgtestResultsloss2, label = "Average pooled midrange removed" )
+#     plt.plot( np.arange( len( avgtestResultsloss6 ) ), avgtestResultsloss6, label = "Average pooled Random removed" )
+#     plt.plot( np.arange( len( avgtestResultsloss7 ) ), avgtestResultsloss7, label = "Average pooled Non Zeros removed" )
+#     plt.legend( title = ( curShape + " important point removal plot" ) )
+#     plt.ylabel( "Loss" )
+#     plt.xlabel( "Iterations" )
+#     plt.show()
+#      
+#     plt.plot( np.arange( len( vuptestResultsloss0 ) ), vuptestResultsloss0, label = "Maxpooled average removed" )
+#     plt.plot( np.arange( len( vuptestResultsloss1 ) ), vuptestResultsloss1, label = "Maxpooled median removed" )
+#     plt.plot( np.arange( len( vuptestResultsloss2 ) ), vuptestResultsloss2, label = "Maxpooled midrange removed" )
+#     plt.plot( np.arange( len( vuptestResultsloss6 ) ), vuptestResultsloss6, label = "Maxpooled Random removed" )
+#     plt.plot( np.arange( len( vuptestResultsloss7 ) ), vuptestResultsloss7, label = "Maxpooled Zeros removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsloss0 ) ), vupavgtestResultsloss0, label = "Average pooled average removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsloss1 ) ), vupavgtestResultsloss1, label = "Average pooled median removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsloss2 ) ), vupavgtestResultsloss2, label = "Average pooled midrange removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsloss6 ) ), vupavgtestResultsloss6, label = "Average pooled Random removed" )
+#     plt.plot( np.arange( len( vupavgtestResultsloss7 ) ), vupavgtestResultsloss7, label = "Average pooled Zeros removed" )
+#     plt.legend( title = ( curShape + " unimportant point removal plot" ) )
+#     plt.ylabel( "Loss" )
+#     plt.xlabel( "Iterations" )
+#     plt.show()
 
     LOG_FOUT.close()
 

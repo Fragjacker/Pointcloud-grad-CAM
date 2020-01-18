@@ -202,13 +202,13 @@ def draw_heatcloud( inpCloud, hitCheckArr, mode ):
     draw_geometries( [pcd] )
     
 def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
-    inputWeightArray = truncate_to_threshold( np.array(inputWeightArray), "+midrange" )
+    inputWeightArray = truncate_to_threshold( inputWeightArray, "+midrange" )
     pColors = np.zeros( ( len( inputWeightArray ), 3 ), dtype = float )
     maxColVal = max( inputWeightArray )
     for index in range( len( inputWeightArray ) ):
         try:
             curVal = inputWeightArray[index]
-            if curVal == 0:
+            if curVal == 0.0:
                 pColors[index] = [0, 0, 0]
             else:
                 red = curVal / maxColVal
@@ -219,7 +219,7 @@ def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
             pColors[index] = [0, 0, 0]
 
     pcd = PointCloud()
-    pcd.points = Vector3dVector( np.array(inputPCArray) )
+    pcd.points = Vector3dVector( inputPCArray[0] )
     pcd.colors = Vector3dVector( pColors )
     draw_geometries( [pcd] )
 
