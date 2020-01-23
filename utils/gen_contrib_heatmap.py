@@ -52,13 +52,12 @@ def get_midrange( inputArr ):
     result = ( minVal + maxVal ) / 2
     return result
 
-def delete_top_n_points( inputArr, numPoints ):
+def delete_max_point( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
-    locArr.sort()
-    locArr.reverse()
-    for _ in range( numPoints ):
-        np.delete( locArr, [0] )
-    return locArr
+    maxWeight = max(inputheatMap)
+    delIndex = np.where(inputheatMap == maxWeight)
+    np.delete( locArr, delIndex, 1 )
+    return locArr, [[locArr[0][delIndex]], [maxWeight]], 1
 
 def delete_all_nonzeros( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
@@ -202,10 +201,10 @@ def draw_heatcloud( inpCloud, hitCheckArr, mode ):
     draw_geometries( [pcd] )
     
 def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
-    inputWeightArray = truncate_to_threshold( np.array(inputWeightArray), "+midrange" )
-    pColors = np.zeros( ( len( inputWeightArray ), 3 ), dtype = float )
+#     inputWeightArray = truncate_to_threshold( np.array(inputWeightArray), "+midrange" )
+    pColors = np.zeros( ( len( inputPCArray ), 3 ), dtype = float )
     maxColVal = max( inputWeightArray )
-    for index in range( len( inputWeightArray ) ):
+    for index in range( len( inputPCArray ) ):
         try:
             curVal = inputWeightArray[index]
             if curVal == 0:
@@ -215,7 +214,7 @@ def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
                 green = 1 - ( curVal / maxColVal )
                 pColors[index] = [red, green, 0]
         except:
-            print( "INVALID VALUE FOR INDEX: ", index )
+#             print( "INVALID VALUE FOR INDEX: ", index )
             pColors[index] = [0, 0, 0]
 
     pcd = PointCloud()

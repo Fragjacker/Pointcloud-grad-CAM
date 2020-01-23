@@ -30,7 +30,7 @@ import test_data_handler as tdh
 usePreviousSession = True    # --Set this to true to use a previously trained model.
 performTraining = False    # --Set this to true to train the model. Set to false to only test the pretrained model.
 desiredLabel = 1    # --The index of the class label the object should be tested against.
-numTestBatchSize = 500    # --Amount of tests for the current test label object.
+numTestRuns = 1    # --Amount of tests for the current test label object.
 maxNumPoints = 2048    # --How many points should be considered? [256/512/1024/2048] [default: 1024]
 
 #===============================================================================
@@ -137,13 +137,13 @@ def storeTestResults( mode, total_correct, total_seen, loss_sum, pred_val ):
         os.makedirs( savePath )
     mean_loss = loss_sum / float( total_seen )
     accuracy = total_correct / float( total_seen )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_meanloss" )
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestRuns ) + "_" + str( mode ) + "_meanloss" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, mean_loss )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_accuracy" )
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestRuns ) + "_" + str( mode ) + "_accuracy" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, accuracy )
-    filePath = os.path.join( savePath, curShape + "_" + str( numTestBatchSize ) + "_" + str( mode ) + "_prediction" )
+    filePath = os.path.join( savePath, curShape + "_" + str( numTestRuns ) + "_" + str( mode ) + "_prediction" )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, pred_val )
     log_string( 'eval mean loss: %f' % mean_loss )
@@ -245,10 +245,6 @@ class AdversialPointCloud():
         self.pred, self.end_points, _, self.feature_vec = MODEL.get_model( self.pointclouds_pl, self.is_training_pl )
         self.classify_loss = MODEL.get_loss( self.pred, self.labels_pl, self.end_points )
 
-        # Store data for heat cloud drawing
-        self.heatGradient = None
-        self.reducedPC = None
-
     def getGradient( self, sess, poolingMode, class_activation_vector, feed_dict ):
         # Compute gradient of the class prediction vector w.r.t. the feature vector. Use class_activation_vector[classIndex] to set which class shall be probed.
         maxgradients = sess.run( tf.gradients( ys = class_activation_vector, xs = self.feature_vec )[0], feed_dict = feed_dict )
@@ -294,9 +290,6 @@ class AdversialPointCloud():
             pred_value, loss_value, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']] , feed_dict = feed_dict )
             pred_value = np.argmax( pred_value, 1 )
 
-            self.heatGradient = heatGradient
-            self.reducedPC = pcTempResult
-
             # Perform visual stuff here
             if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
                 resultPCloudThresh, heatGradient, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
@@ -329,17 +322,23 @@ class AdversialPointCloud():
         return pcTempResult, delCount
 
     def drop_and_store_results( self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints = None ):
+        # Some profiling
+        import cProfile
+        pr = cProfile.Profile()
+        pr.enable()
+        
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
         delCount = []
         vipPcPointsArr = []
         weightArray = []
-        accuracy = 1.0
+        i = 0
         
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
         class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
 
-        for i in range( 20 ):
+        while True:
+            i += 1
             print( "ITERATION: ", i )
             # Setup feed dict for current iteration
             feed_dict = {self.pointclouds_pl: pcTempResult,
@@ -351,34 +350,7 @@ class AdversialPointCloud():
             ops = {'pred':self.pred,
                    'loss':self.classify_loss,
                    'maxgradients':maxgradients}
-            # Drop points now
-            pred_value, loss_value, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']] , feed_dict = feed_dict )
-
-            self.heatGradient = heatGradient
-            self.reducedPC = pcTempResult
             
-            # Perform visual stuff here
-            if accuracy > 0.0:
-                if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
-                    resultPCloudThresh, vipPointsArr, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
-                if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
-                    resultPCloudThresh, vipPointsArr, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
-                if thresholdMode == "nonzero":
-                    resultPCloudThresh, vipPointsArr, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
-                if thresholdMode == "zero":
-                    resultPCloudThresh, vipPointsArr, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
-                if thresholdMode == "+random" or thresholdMode == "-random":
-                    resultPCloudThresh, vipPointsArr = gch.delete_random_points( heatGradient, pcTempResult, numDeletePoints[i] )
-                    Count = numDeletePoints[i]
-                print("ACCURACY OK, REMOVING %s POINTS." % Count)
-
-                delCount.append( Count )
-                vipPcPointsArr.extend( vipPointsArr[0] )
-                weightArray.extend( vipPointsArr[1] )
-                pcTempResult = copy.deepcopy( resultPCloudThresh )
-            else:
-                delCount.append( 0 )
-                print("ACCURACY IS ZERO AFTER %s STEPS, NOT REMOVING POINTS" % i)
             #===================================================================
             # Evaluate over n batches now to get the accuracy for this iteration.
             #===================================================================
@@ -386,12 +358,12 @@ class AdversialPointCloud():
             total_seen = 0
             loss_sum = 0
             pcEvalTest = copy.deepcopy( pcTempResult )
-            for _ in range( numTestBatchSize ):
+            for _ in range( numTestRuns ):
                 pcEvalTest = provider.rotate_point_cloud_XYZ( pcEvalTest )
                 feed_dict2 = {self.pointclouds_pl: pcEvalTest,
                               self.labels_pl: labels_pl,
                               self.is_training_pl: self.is_training}
-                eval_prediction, eval_loss = sess.run( [ops['pred'], ops['loss']],
+                eval_prediction, eval_loss, heatGradient = sess.run( [ops['pred'], ops['loss'], ops['maxgradients']],
                                           feed_dict = feed_dict2 )
                 eval_prediction = np.argmax( eval_prediction, 1 )
                 correct = np.sum( eval_prediction == labels_pl )
@@ -404,22 +376,46 @@ class AdversialPointCloud():
             print( "LOSS: ", eval_loss )
             print( "ACCURACY: ", (total_correct / total_seen) )
             accuracy = total_correct / float( total_seen )
+            
             # Stop iterating when the eval_prediction deviates from ground truth
-            if classIndex != eval_prediction:
-                print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s STEPS" % i)
+            if classIndex != eval_prediction and accuracy <= 0.5:
+                print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s ITERATIONS" % i)
                 break
+            
+            # Perform visual stuff here
+#             resultPCloudThresh, vipPointsArr, Count = gch.delete_max_point( heatGradient, pcTempResult )
+
+            if thresholdMode == "+average" or thresholdMode == "+median" or thresholdMode == "+midrange":
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_above_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "-average" or thresholdMode == "-median" or thresholdMode == "-midrange":
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_below_threshold( heatGradient, pcTempResult, thresholdMode )
+            if thresholdMode == "nonzero":
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_all_nonzeros( heatGradient, pcTempResult )
+            if thresholdMode == "zero":
+                resultPCloudThresh, vipPointsArr, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
+            if thresholdMode == "+random" or thresholdMode == "-random":
+                resultPCloudThresh, vipPointsArr = gch.delete_random_points( heatGradient, pcTempResult, numDeletePoints[i] )
+#                 Count = numDeletePoints[i]
+            print("REMOVING %s POINTS." % Count)
+
+            delCount.append( Count )
+            vipPcPointsArr.extend( vipPointsArr[0] )
+            weightArray.extend( vipPointsArr[1] )
+            pcTempResult = copy.deepcopy( resultPCloudThresh )
             
 #             testSetName = "XYZ_" + poolingMode + "_" + thresholdMode
 #             storeTestResults( testSetName, total_correct, total_seen, loss_sum, eval_prediction )
+
+        pr.disable()
+        pr.print_stats()
         totalRemoved = sum(delCount)
         print("TOTAL REMOVED POINTS: ", totalRemoved)
         print("TOTAL REMAINING POINTS: ", maxNumPoints - totalRemoved)
-        gch.draw_pointcloud(pcTempResult)
-        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray)
+        gch.draw_pointcloud(pcTempResult) #-- Residual point cloud
+#         gch.draw_NewHeatcloud(vipPcPointsArr, weightArray) #-- Important points only
+        vipPcPointsArr.extend(pcTempResult[0])
+        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray) #--All points combined
         return delCount
-
-    def drawHeatCloud( self, thresholdMode ):
-        gch.draw_heatcloud( self.reducedPC, self.heatGradient, thresholdMode )
 
 def evaluate():
     global testLabel
@@ -485,16 +481,16 @@ def evaluate():
             #===================================================================
             # Max pooling
             #===================================================================
-            deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-                                                    current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
+#             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
 #             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
 #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
 #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
-#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+midrange" )
+            adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+                                                    current_label[start_idx:end_idx], sess, "maxpooling", "+midrange" )
 #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-average" )
 #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
@@ -580,51 +576,51 @@ if __name__ == "__main__":
 #     #===========================================================================
 #     # Max pooling
 #     #===========================================================================
-#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_accuracy" ) )
-#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_accuracy" ) )
-#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_accuracy" ) )
-#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_accuracy" ) )
-#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_accuracy" ) )
-#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+average_meanloss" ) )
-#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+median_meanloss" ) )
-#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+midrange_meanloss" ) )
-#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_+random_meanloss" ) )
-#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_nonzero_meanloss" ) )
+#     testResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+average_accuracy" ) )
+#     testResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+median_accuracy" ) )
+#     testResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+midrange_accuracy" ) )
+#     testResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+random_accuracy" ) )
+#     testResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_nonzero_accuracy" ) )
+#     testResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+average_meanloss" ) )
+#     testResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+median_meanloss" ) )
+#     testResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+midrange_meanloss" ) )
+#     testResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_+random_meanloss" ) )
+#     testResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_nonzero_meanloss" ) )
 #      
-#     vuptestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_accuracy" ) )
-#     vuptestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_accuracy" ) )
-#     vuptestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_accuracy" ) )
-#     vuptestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_accuracy" ) )
-#     vuptestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_accuracy" ) )
-#     vuptestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-average_meanloss" ) )
-#     vuptestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-median_meanloss" ) )
-#     vuptestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-midrange_meanloss" ) )
-#     vuptestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_-random_meanloss" ) )
-#     vuptestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_maxpooling_zero_meanloss" ) )
+#     vuptestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-average_accuracy" ) )
+#     vuptestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-median_accuracy" ) )
+#     vuptestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-midrange_accuracy" ) )
+#     vuptestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-random_accuracy" ) )
+#     vuptestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_zero_accuracy" ) )
+#     vuptestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-average_meanloss" ) )
+#     vuptestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-median_meanloss" ) )
+#     vuptestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-midrange_meanloss" ) )
+#     vuptestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_-random_meanloss" ) )
+#     vuptestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_maxpooling_zero_meanloss" ) )
 #     #===============================================================================
 #     # Average pooling
 #     #===============================================================================
-#     avgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_accuracy" ) )
-#     avgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_accuracy" ) )
-#     avgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_accuracy" ) )
-#     avgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_accuracy" ) )
-#     avgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_accuracy" ) )
-#     avgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+average_meanloss" ) )
-#     avgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+median_meanloss" ) )
-#     avgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+midrange_meanloss" ) )
-#     avgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_+random_meanloss" ) )
-#     avgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_nonzero_meanloss" ) )
+#     avgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+average_accuracy" ) )
+#     avgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+median_accuracy" ) )
+#     avgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+midrange_accuracy" ) )
+#     avgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+random_accuracy" ) )
+#     avgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_nonzero_accuracy" ) )
+#     avgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+average_meanloss" ) )
+#     avgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+median_meanloss" ) )
+#     avgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+midrange_meanloss" ) )
+#     avgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_+random_meanloss" ) )
+#     avgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_nonzero_meanloss" ) )
 #      
-#     vupavgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_accuracy" ) )
-#     vupavgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_accuracy" ) )
-#     vupavgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_accuracy" ) )
-#     vupavgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_accuracy" ) )
-#     vupavgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_zero_accuracy" ) )
-#     vupavgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-average_meanloss" ) )
-#     vupavgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-median_meanloss" ) )
-#     vupavgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-midrange_meanloss" ) )
-#     vupavgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_-random_meanloss" ) )
-#     vupavgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestBatchSize) + "_XYZ_avgpooling_zero_meanloss" ) )
+#     vupavgtestResultsacc0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-average_accuracy" ) )
+#     vupavgtestResultsacc1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-median_accuracy" ) )
+#     vupavgtestResultsacc2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-midrange_accuracy" ) )
+#     vupavgtestResultsacc6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-random_accuracy" ) )
+#     vupavgtestResultsacc7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_zero_accuracy" ) )
+#     vupavgtestResultsloss0 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-average_meanloss" ) )
+#     vupavgtestResultsloss1 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-median_meanloss" ) )
+#     vupavgtestResultsloss2 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-midrange_meanloss" ) )
+#     vupavgtestResultsloss6 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_-random_meanloss" ) )
+#     vupavgtestResultsloss7 = tdh.readTestFile( os.path.join( savePath, curShape + "_" + str(numTestRuns) + "_XYZ_avgpooling_zero_meanloss" ) )
 #   
 #     plt.plot( np.arange( len( testResultsacc0 ) ), testResultsacc0, label = "Maxpooled average removed" )
 #     plt.plot( np.arange( len( testResultsacc1 ) ), testResultsacc1, label = "Maxpooled median removed" )
