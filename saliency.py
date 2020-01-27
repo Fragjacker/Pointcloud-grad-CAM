@@ -14,6 +14,9 @@ sys.path.append(os.path.join(BASE_DIR, 'models_saliency'))
 sys.path.append(os.path.join(BASE_DIR, 'utils_saliency'))
 import provider
 import pc_util
+import gen_contrib_heatmap as gch
+import codeProfiler as cpr
+import test_data_handler as tdh
 
 desiredLabel = 1    # --The index of the class label the object should be tested against.
 #===============================================================================
@@ -48,6 +51,15 @@ def findCorrectLabel( inputLabelArray ):
 def getPrediction( predIndex ):
     return getShapeName( predIndex[0] )
 
+def storeAmountOfPointsRemoved( numPointsRemoved ):
+    '''
+    This function stores the amount of poinst removed per iteration.
+    '''
+    curShape = getShapeName( testLabel )
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
+    filePath = os.path.join( savePath, curShape + "_saliency_removed" )
+    tdh.writeResult( filePath, numPointsRemoved )
+
 testLabel = desiredLabel - 1    # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 #------------------------------------------------------------------------------ 
 
@@ -55,13 +67,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls', help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during training [default: 1]')
-parser.add_argument('--num_point', type=int, default=1024, help='Point Number [256/512/1024/2048] [default: 1024]')
+parser.add_argument('--num_point', type=int, default=2048, help='Point Number [256/512/1024/2048] [default: 1024]')
 parser.add_argument('--model_path', default='log/model.ckpt', help='model checkpoint file path [default: log/model.ckpt]')
 parser.add_argument('--dump_dir', default='dump', help='dump folder path [dump]')
 parser.add_argument('--visu', action='store_true', help='Whether to dump image for error case [default: False]')
-parser.add_argument('--num_votes', type=int, default=1, help='Aggregate classification scores from multiple rotations [default: 1]')
-parser.add_argument('--num_drop', type=int, default=15, help='num of points to drop each step')
-parser.add_argument('--num_steps', type=int, default=20, help='num of steps to drop each step')
+parser.add_argument('--num_votes', type=int, default=100, help='Aggregate classification scores from multiple rotations [default: 1]')
+parser.add_argument('--num_drop', type=int, default=1, help='num of points to drop each step')
+parser.add_argument('--num_steps', type=int, default=690, help='num of steps to drop each step')
 parser.add_argument('--drop_neg', action='store_true',help='drop negative points')
 parser.add_argument('--power', type=int, default=1, help='x: -dL/dr*r^x')
 FLAGS = parser.parse_args()
@@ -119,7 +131,9 @@ class SphereAttack():
         if not os.path.exists(DUMP_DIR+'/pred_wrong_adv_wrong'): os.mkdir(DUMP_DIR+'/pred_wrong_adv_wrong')
         
     def drop_points(self, pointclouds_pl, labels_pl, sess):
-        import gen_contrib_heatmap as gch
+        # Some profiling
+        cpr.startProfiling()
+        
         pointclouds_pl_adv = pointclouds_pl.copy()
         heatmap = np.zeros((pointclouds_pl.shape[1]), dtype=float)
         residualPCArr = np.zeros((pointclouds_pl_adv.shape[0], (self.a * self.k), 3), dtype=float)
@@ -152,7 +166,16 @@ class SphereAttack():
                     counter += 1
                 tmp[j] = np.delete(pointclouds_pl_adv[j], drop_indice[j], axis=0) # along N points to delete
             pointclouds_pl_adv = tmp.copy()
+            
+            # Store results now.
+            totalRemainingPoints = NUM_POINT - counter
+            storeAmountOfPointsRemoved(totalRemainingPoints)
+            
         residualPCArr = np.concatenate((residualPCArr, pointclouds_pl_adv), axis=1)
+        
+        
+        # Stop profiling and show the results
+        cpr.stopProfiling(numResults=20)
         
         print("POINTS DROPPED: ", (self.a * self.k))
         gch.draw_NewHeatcloud(residualPCArr, heatmap)
@@ -253,7 +276,7 @@ def evaluate(num_votes):
         num_batches = file_size // BATCH_SIZE
         print(file_size)
         
-        for batch_idx in range(1):
+        for _ in range(1):
             batchStart = findCorrectLabel( current_label )
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart+1) * BATCH_SIZE
@@ -304,8 +327,8 @@ def evaluate(num_votes):
                 batch_loss_sum_adv += (loss_val_adv * cur_batch_size / float(num_votes))
             pred_val_adv = np.argmax(batch_pred_sum_adv, 1)
 
-            attack.plot_natural_and_advsarial_samples_all_situation(current_data[start_idx:end_idx, :, :], cur_batch_data_adv, 
-                                                      current_label[start_idx:end_idx], pred_val, pred_val_adv)
+#             attack.plot_natural_and_advsarial_samples_all_situation(current_data[start_idx:end_idx, :, :], cur_batch_data_adv, 
+#                                                       current_label[start_idx:end_idx], pred_val, pred_val_adv)
             correct = np.sum(pred_val_adv == current_label[start_idx:end_idx])
             # correct = np.sum(pred_val_topk[:,0:topk] == label_val)
             total_correct += correct
@@ -325,14 +348,14 @@ def evaluate(num_votes):
                     # output_img = pc_util.point_cloud_three_views(np.squeeze(current_data[i, :, :]))
                     # scipy.misc.imsave(img_filename, output_img)
                     # error_cnt += 1
-                
+    log_string('current predicion: %s' % getPrediction(pred_val_adv))      
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f' % (total_correct / float(total_seen)))
-    log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
+#     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
     
-    class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
-    for i, name in enumerate(SHAPE_NAMES):
-        log_string('%10s:\t%0.3f' % (name, class_accuracies[i]))
+#     class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
+#     for i, name in enumerate(SHAPE_NAMES):
+#         log_string('%10s:\t%0.3f' % (name, class_accuracies[i]))
     
 
 

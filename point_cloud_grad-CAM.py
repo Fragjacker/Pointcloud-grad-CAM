@@ -23,6 +23,7 @@ import tf_util
 from matplotlib import pyplot as plt
 import gen_contrib_heatmap as gch
 import test_data_handler as tdh
+import codeProfiler as cpr
 
 #===============================================================================
 # Global variables to control program behavior
@@ -148,6 +149,16 @@ def storeTestResults( mode, total_correct, total_seen, loss_sum, pred_val ):
     tdh.writeResult( filePath, pred_val )
     log_string( 'eval mean loss: %f' % mean_loss )
     log_string( 'eval accuracy: %f' % accuracy )
+    
+def storeAmountOfPointsRemoved( numPointsRemoved ):
+    '''
+    This function stores the amount of poinst removed per iteration.
+    '''
+    curShape = getShapeName( testLabel )
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
+    filePath = os.path.join( savePath, curShape + "_p-grad-CAM_removed" )
+    print( "STORING FILES TO: ", filePath )
+    tdh.writeResult( filePath, numPointsRemoved )
 
 testLabel = desiredLabel - 1    # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 #------------------------------------------------------------------------------
@@ -323,9 +334,7 @@ class AdversialPointCloud():
 
     def drop_and_store_results( self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints = None ):
         # Some profiling
-        import cProfile
-        pr = cProfile.Profile()
-        pr.enable()
+        cpr.startProfiling()
         
         pcTempResult = pointclouds_pl.copy()
         classIndex = testLabel
@@ -338,6 +347,9 @@ class AdversialPointCloud():
         class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
 
         while True:
+            curRemainingPoints = maxNumPoints - sum(delCount)
+            storeAmountOfPointsRemoved(curRemainingPoints)
+            
             i += 1
             print( "ITERATION: ", i )
             # Setup feed dict for current iteration
@@ -406,8 +418,9 @@ class AdversialPointCloud():
 #             testSetName = "XYZ_" + poolingMode + "_" + thresholdMode
 #             storeTestResults( testSetName, total_correct, total_seen, loss_sum, eval_prediction )
 
-        pr.disable()
-        pr.print_stats()
+        # Stop profiling and show the results
+        cpr.stopProfiling(numResults=20)
+        
         totalRemoved = sum(delCount)
         print("TOTAL REMOVED POINTS: ", totalRemoved)
         print("TOTAL REMAINING POINTS: ", maxNumPoints - totalRemoved)
@@ -571,8 +584,22 @@ if __name__ == "__main__":
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
             evaluate()
 
-#     curShape = getShapeName( testLabel )
+    curShape = getShapeName( testLabel )
 #     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
+    #===========================================================================
+    # PLOT REMOVED POINTS
+    #===========================================================================
+    pGradCAMpointsRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_p-grad-CAM_removed" ) )
+    saliencyRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_saliency_removed" ) )
+    plt.plot( np.arange( len( pGradCAMpointsRemovedPlot ) ), pGradCAMpointsRemovedPlot, label = "p-grad-CAM points removed" )
+    plt.plot( np.arange( len( saliencyRemovedPlot ) ), saliencyRemovedPlot, label = "saliency points removed" )
+    plt.legend( title = ( curShape + " points removed per iteration plot" ) )
+    plt.ylabel( "Points" )
+    plt.xlabel( "Iterations" )
+    plt.subplots_adjust(left=0.036, bottom=0.048, right=0.999, top=0.999, wspace=0.2 , hspace=0.17 )
+    plt.show()
+
 #     #===========================================================================
 #     # Max pooling
 #     #===========================================================================
