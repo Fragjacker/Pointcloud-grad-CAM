@@ -407,7 +407,7 @@ class AdversialPointCloud():
                 resultPCloudThresh, vipPointsArr, Count = gch.delete_all_zeros( heatGradient, pcTempResult )
             if thresholdMode == "+random" or thresholdMode == "-random":
                 resultPCloudThresh, vipPointsArr = gch.delete_random_points( heatGradient, pcTempResult, numDeletePoints[i] )
-#                 Count = numDeletePoints[i]
+                Count = numDeletePoints[i]
             print("REMOVING %s POINTS." % Count)
 
             delCount.append( Count )
@@ -584,21 +584,21 @@ if __name__ == "__main__":
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
             evaluate()
 
-    curShape = getShapeName( testLabel )
-#     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
-    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
-    #===========================================================================
-    # PLOT REMOVED POINTS
-    #===========================================================================
-    pGradCAMpointsRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_p-grad-CAM_removed" ) )
-    saliencyRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_saliency_removed" ) )
-    plt.plot( np.arange( len( pGradCAMpointsRemovedPlot ) ), pGradCAMpointsRemovedPlot, label = "p-grad-CAM points removed" )
-    plt.plot( np.arange( len( saliencyRemovedPlot ) ), saliencyRemovedPlot, label = "saliency points removed" )
-    plt.legend( title = ( curShape + " points removed per iteration plot" ) )
-    plt.ylabel( "Points" )
-    plt.xlabel( "Iterations" )
-    plt.subplots_adjust(left=0.036, bottom=0.048, right=0.999, top=0.999, wspace=0.2 , hspace=0.17 )
-    plt.show()
+#     curShape = getShapeName( testLabel )
+# #     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
+#     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
+#     #===========================================================================
+#     # PLOT REMOVED POINTS
+#     #===========================================================================
+#     pGradCAMpointsRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_p-grad-CAM_removed" ) )
+#     saliencyRemovedPlot = tdh.readTestFile( os.path.join( savePath, curShape + "_saliency_removed" ) )
+#     plt.plot( np.arange( len( pGradCAMpointsRemovedPlot ) ), pGradCAMpointsRemovedPlot, label = "p-grad-CAM points removed" )
+#     plt.plot( np.arange( len( saliencyRemovedPlot ) ), saliencyRemovedPlot, label = "saliency points removed" )
+#     plt.legend( title = ( curShape + " points removed per iteration plot" ) )
+#     plt.ylabel( "Points" )
+#     plt.xlabel( "Iterations" )
+#     plt.subplots_adjust(left=0.036, bottom=0.048, right=0.999, top=0.999, wspace=0.2 , hspace=0.17 )
+#     plt.show()
 
 #     #===========================================================================
 #     # Max pooling

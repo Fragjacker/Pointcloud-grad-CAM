@@ -56,8 +56,8 @@ def delete_max_point( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
     maxWeight = max(inputheatMap)
     delIndex = np.where(inputheatMap == maxWeight)
-    np.delete( locArr, delIndex, 1 )
-    return locArr, [[locArr[0][delIndex]], [maxWeight]], 1
+    locArr = np.delete( locArr, delIndex, 1 )
+    return locArr, [locArr[0][delIndex], [maxWeight]], 1
 
 def delete_all_nonzeros( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )

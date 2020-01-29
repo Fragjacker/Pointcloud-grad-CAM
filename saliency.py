@@ -18,7 +18,9 @@ import gen_contrib_heatmap as gch
 import codeProfiler as cpr
 import test_data_handler as tdh
 
-desiredLabel = 1    # --The index of the class label the object should be tested against.
+desiredLabel = 10    # --The index of the class label the object should be tested against.
+numPointsToRemove = 59
+storeResults = False
 #===============================================================================
 # HELP FUNCTIONS
 #===============================================================================
@@ -73,7 +75,7 @@ parser.add_argument('--dump_dir', default='dump', help='dump folder path [dump]'
 parser.add_argument('--visu', action='store_true', help='Whether to dump image for error case [default: False]')
 parser.add_argument('--num_votes', type=int, default=100, help='Aggregate classification scores from multiple rotations [default: 1]')
 parser.add_argument('--num_drop', type=int, default=1, help='num of points to drop each step')
-parser.add_argument('--num_steps', type=int, default=690, help='num of steps to drop each step')
+parser.add_argument('--num_steps', type=int, default=numPointsToRemove, help='num of steps to drop each step')
 parser.add_argument('--drop_neg', action='store_true',help='drop negative points')
 parser.add_argument('--power', type=int, default=1, help='x: -dL/dr*r^x')
 FLAGS = parser.parse_args()
@@ -168,8 +170,9 @@ class SphereAttack():
             pointclouds_pl_adv = tmp.copy()
             
             # Store results now.
-            totalRemainingPoints = NUM_POINT - counter
-            storeAmountOfPointsRemoved(totalRemainingPoints)
+            if storeResults:
+                totalRemainingPoints = NUM_POINT - counter
+                storeAmountOfPointsRemoved(totalRemainingPoints)
             
         residualPCArr = np.concatenate((residualPCArr, pointclouds_pl_adv), axis=1)
         
