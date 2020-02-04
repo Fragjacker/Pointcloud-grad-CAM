@@ -30,8 +30,8 @@ import codeProfiler as cpr
 #===============================================================================
 usePreviousSession = True    # --Set this to true to use a previously trained model.
 performTraining = False    # --Set this to true to train the model. Set to false to only test the pretrained model.
-desiredLabel = 1    # --The index of the class label the object should be tested against.
-numTestRuns = 1    # --Amount of tests for the current test label object.
+desiredLabel = 1    # --The index of the class label the object should be tested against. It matches with the line numbers of the shapes.txt files e.g. line 1 = airplane etc.
+numTestRuns = 100    # --Amount of tests for the current test label object.
 maxNumPoints = 2048    # --How many points should be considered? [256/512/1024/2048] [default: 1024]
 
 #===============================================================================
@@ -117,7 +117,7 @@ def findCorrectLabel( inputLabelArray ):
     test batch that matches the target feature vector.
     '''
     result = None
-    compLabel = getShapeName( testLabel )
+    compLabel = getShapeName( desiredClassLabel )
     for currentIndex in range( len( inputLabelArray ) ):
         curLabel = getShapeName( inputLabelArray[currentIndex:currentIndex + 1][0] )
         if curLabel.lower() == compLabel.lower():
@@ -132,7 +132,7 @@ def storeTestResults( mode, total_correct, total_seen, loss_sum, pred_val ):
     '''
     This function stores the test data into seperate files for later retrieval.
     '''
-    curShape = getShapeName( testLabel )
+    curShape = getShapeName( desiredClassLabel )
     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
     if not os.path.exists( savePath ):
         os.makedirs( savePath )
@@ -152,15 +152,17 @@ def storeTestResults( mode, total_correct, total_seen, loss_sum, pred_val ):
     
 def storeAmountOfPointsRemoved( numPointsRemoved ):
     '''
-    This function stores the amount of poinst removed per iteration.
+    This function stores the amount of points removed per iteration.
     '''
-    curShape = getShapeName( testLabel )
-    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
-    filePath = os.path.join( savePath, curShape + "_p-grad-CAM_removed" )
+    curShape = getShapeName( desiredClassLabel )
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata", "p-grad-CAM" )
+    if not os.path.exists( savePath ):
+        os.makedirs( savePath )
+    filePath = os.path.join( savePath, curShape )
     print( "STORING FILES TO: ", filePath )
     tdh.writeResult( filePath, numPointsRemoved )
 
-testLabel = desiredLabel - 1    # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
+desiredClassLabel = desiredLabel - 1    # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 #------------------------------------------------------------------------------
 
 parser = argparse.ArgumentParser()
@@ -278,7 +280,7 @@ class AdversialPointCloud():
 
     def drop_points( self, pointclouds_pl, labels_pl, sess, poolingMode, thresholdMode, numDeletePoints = 0 ):
         pcTempResult = pointclouds_pl.copy()
-        classIndex = testLabel
+        classIndex = desiredClassLabel
         delCount = 0
 
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
@@ -337,14 +339,13 @@ class AdversialPointCloud():
         cpr.startProfiling()
         
         pcTempResult = pointclouds_pl.copy()
-        classIndex = testLabel
         delCount = []
         vipPcPointsArr = []
         weightArray = []
         i = 0
         
         # Multiply the class activation vector with a one hot vector to look only at the classes of interest.
-        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = classIndex, depth = 40 ) )
+        class_activation_vector = tf.multiply( self.pred, tf.one_hot( indices = desiredClassLabel, depth = 40 ) )
 
         while True:
             curRemainingPoints = maxNumPoints - sum(delCount)
@@ -382,15 +383,15 @@ class AdversialPointCloud():
                 total_correct += correct
                 total_seen += 1
                 loss_sum += eval_loss * BATCH_SIZE
-                
-            print( "GROUND TRUTH: ", getShapeName( classIndex ) )
+                 
+            print( "GROUND TRUTH: ", getShapeName( desiredClassLabel ) )
             print( "PREDICTION: ", getPrediction( eval_prediction ) )
             print( "LOSS: ", eval_loss )
             print( "ACCURACY: ", (total_correct / total_seen) )
             accuracy = total_correct / float( total_seen )
-            
+             
             # Stop iterating when the eval_prediction deviates from ground truth
-            if classIndex != eval_prediction and accuracy <= 0.5:
+            if desiredClassLabel != eval_prediction and accuracy <= 0.5:
                 print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s ITERATIONS" % i)
                 break
             
@@ -409,7 +410,7 @@ class AdversialPointCloud():
                 resultPCloudThresh, vipPointsArr = gch.delete_random_points( heatGradient, pcTempResult, numDeletePoints[i] )
                 Count = numDeletePoints[i]
             print("REMOVING %s POINTS." % Count)
-
+            
             delCount.append( Count )
             vipPcPointsArr.extend( vipPointsArr[0] )
             weightArray.extend( vipPointsArr[1] )
@@ -431,7 +432,7 @@ class AdversialPointCloud():
         return delCount
 
 def evaluate():
-    global testLabel
+    global desiredClassLabel
     is_training = False
     adversarial_attack = AdversialPointCloud()
 
@@ -481,7 +482,7 @@ def evaluate():
         current_label = np.squeeze( current_label )
 
         for shapeIndex in range( 1 ):
-#             testLabel = shapeIndex
+#             desiredClassLabel = shapeIndex
             batchStart = findCorrectLabel( current_label )
             start_idx = batchStart * BATCH_SIZE
             end_idx = ( batchStart + 1 ) * BATCH_SIZE
@@ -584,7 +585,7 @@ if __name__ == "__main__":
         with tf.device( '/gpu:' + str( GPU_INDEX ) ):
             evaluate()
 
-#     curShape = getShapeName( testLabel )
+#     curShape = getShapeName( desiredClassLabel )
 # #     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" , curShape )
 #     savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
 #     #===========================================================================
