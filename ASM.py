@@ -3,69 +3,68 @@ import numpy as np
 import argparse
 import socket
 import importlib
-import time
 import os
-import scipy.misc
 import sys
 # import setGPU
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, 'models_saliency'))
 sys.path.append(os.path.join(BASE_DIR, 'utils_saliency'))
+sys.path.append(os.path.join(BASE_DIR, 'shared_functions'))
 import provider
 import pc_util
 import gen_contrib_heatmap as gch
 import codeProfiler as cpr
 import test_data_handler as tdh
+from help_functions import getShapeName, findCorrectLabel, getPrediction
 
-desiredLabel = 10    # --The index of the class label the object should be tested against.
-numPointsToRemove = 59
+desiredLabel = 1    # --The index of the class label the object should be tested against.
+numPointsToRemove = 1
+evalCycles = 100
 storeResults = False
 #===============================================================================
 # HELP FUNCTIONS
 #===============================================================================
-def getShapeName( index ):
-    '''
-    This function returns the label index as a string,
-    using the shape_names.txt file for reference.
-    '''
-    shapeTXT = open( 'data\\modelnet40_ply_hdf5_2048\\shape_names.txt', 'r' )
-    entry = ''
-    for _ in range( index + 1 ):
-        entry = shapeTXT.readline().rstrip()
-    shapeTXT.close()
-    return entry
 
-def findCorrectLabel( inputLabelArray ):
+def storeAmountOfUsedTime( usedTime ):
     '''
-    This function retrieves the correct shape from the
-    test batch that matches the target feature vector.
+    This function stores the amount of total time used per object.
     '''
-    result = None
-    compLabel = getShapeName( testLabel )
-    for currentIndex in range( len( inputLabelArray ) ):
-        curLabel = getShapeName( inputLabelArray[currentIndex:currentIndex + 1][0] )
-        if curLabel.lower() == compLabel.lower():
-            result = currentIndex
-            break
-    return result
-
-def getPrediction( predIndex ):
-    return getShapeName( predIndex[0] )
+    curShape = getShapeName(desiredClassLabel)
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata", "saliency_maps_performance" )
+    if not os.path.exists( savePath ):
+        os.makedirs( savePath )
+    filePath = os.path.join( savePath, curShape )
+    print( "STORING FILES TO: ", filePath )
+    tdh.writeResult( filePath, usedTime )
 
 def storeAmountOfPointsRemoved( numPointsRemoved ):
     '''
     This function stores the amount of poinst removed per iteration.
     '''
-    curShape = getShapeName( testLabel )
-    savePath = os.path.join( os.path.split( __file__ )[0], "testdata" )
-    filePath = os.path.join( savePath, curShape + "_saliency_removed" )
+    curShape = getShapeName(desiredClassLabel)
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata", "saliency_maps_ppi" )
+    if not os.path.exists( savePath ):
+        os.makedirs( savePath )
+    filePath = os.path.join( savePath, curShape + "_points_removed" )
     tdh.writeResult( filePath, numPointsRemoved )
+    
+def storeAccuracyPerPointsRemoved( accuracy ):
+    '''
+    This function stores the amount of poinst removed per iteration.
+    '''
+    curShape = getShapeName(desiredClassLabel)
+    savePath = os.path.join( os.path.split( __file__ )[0], "testdata", "saliency_maps_ppi" )
+    if not os.path.exists( savePath ):
+        os.makedirs( savePath )
+    filePath = os.path.join( savePath, curShape + "_accuracy" )
+    tdh.writeResult( filePath, accuracy )
 
-testLabel = desiredLabel - 1    # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 #------------------------------------------------------------------------------ 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--desired_label', type=int, default=desiredLabel, help='The desired class label for the target shape. For example 1 for airplane, 2 for bathtub etc.')
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls', help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during training [default: 1]')
@@ -90,6 +89,8 @@ DUMP_DIR = FLAGS.dump_dir
 if not os.path.exists(DUMP_DIR): os.mkdir(DUMP_DIR)
 LOG_FOUT = open(os.path.join(DUMP_DIR, 'log_evaluate.txt'), 'w')
 LOG_FOUT.write(str(FLAGS)+'\n')
+
+desiredClassLabel = FLAGS.desired_label - 1  # -- Subtract 1 to make the label match Python array enumeration, which starts from 0.
 
 NUM_CLASSES = 40
 SHAPE_NAMES = [line.rstrip() for line in \
@@ -134,13 +135,60 @@ class SphereAttack():
         
     def drop_points(self, pointclouds_pl, labels_pl, sess):
         # Some profiling
+        import time
+        start_time = time.time()
         cpr.startProfiling()
         
         pointclouds_pl_adv = pointclouds_pl.copy()
-        heatmap = np.zeros((pointclouds_pl.shape[1]), dtype=float)
-        residualPCArr = np.zeros((pointclouds_pl_adv.shape[0], (self.a * self.k), 3), dtype=float)
+        heatmap = np.zeros((pointclouds_pl_adv.shape[1]), dtype=float)
+        residualPCArr = []
         counter = 0
-        for i in range(self.k):
+        i = 0
+        while True:
+            i += 1
+            
+            #===================================================================
+            # ADAPTIVE EVALUATION AND TERMINATION
+            #===================================================================
+            ops = {'pred':self.pred,
+                   'loss':self.classify_loss}
+            total_correct = 0
+            total_seen = 0
+            loss_sum = 0
+            pcEvalTest = pointclouds_pl_adv.copy()
+            for _ in range( evalCycles ):
+                pcEvalTest = provider.rotate_point_cloud_XYZ( pcEvalTest )
+                feed_dict2 = {self.pointclouds_pl: pcEvalTest,
+                              self.labels_pl: labels_pl,
+                              self.is_training_pl: self.is_training}
+                eval_prediction, eval_loss = sess.run( [ops['pred'], ops['loss']],
+                                          feed_dict = feed_dict2 )
+                eval_prediction = np.argmax( eval_prediction, 1 )
+                correct = np.sum( eval_prediction == labels_pl )
+                total_correct += correct
+                total_seen += 1
+                loss_sum += eval_loss * BATCH_SIZE
+                 
+            print( "GROUND TRUTH: ", getShapeName(desiredClassLabel))
+            print( "PREDICTION: ", getPrediction(eval_prediction))
+            print( "LOSS: ", eval_loss )
+            print( "ACCURACY: ", (total_correct / total_seen) )
+            accuracy = total_correct / float( total_seen )
+            
+            # Store results now.
+            if storeResults:
+                totalRemainingPoints = NUM_POINT - counter
+                storeAmountOfPointsRemoved(totalRemainingPoints)
+                storeAccuracyPerPointsRemoved(accuracy)
+            
+            # Stop iterating when the eval_prediction deviates from ground truth
+            if desiredClassLabel != eval_prediction and accuracy <= 0.5:
+                print("GROUND TRUTH DEVIATED FROM PREDICTION AFTER %s ITERATIONS" % i)
+                break
+            
+            #===================================================================
+            # PERFORM COMPUTATION
+            #===================================================================
             grad = sess.run(self.grad, feed_dict={self.pointclouds_pl: pointclouds_pl_adv,
                                                   self.labels_pl: labels_pl,
                                                   self.is_training_pl: self.is_training})
@@ -163,26 +211,25 @@ class SphereAttack():
             tmp = np.zeros((pointclouds_pl_adv.shape[0], pointclouds_pl_adv.shape[1]-self.a, 3), dtype=float)
             for j in range(pointclouds_pl.shape[0]):
                 for dropIndex in drop_indice[j]:
-                    residualPCArr[0][counter] = pointclouds_pl_adv[j][dropIndex]
+#                     residualPCArr[0][counter] = pointclouds_pl_adv[j][dropIndex]
+                    residualPCArr.append(pointclouds_pl_adv[j][dropIndex])
                     heatmap[counter] = sphere_map[0][dropIndex]
                     counter += 1
                 tmp[j] = np.delete(pointclouds_pl_adv[j], drop_indice[j], axis=0) # along N points to delete
             pointclouds_pl_adv = tmp.copy()
             
-            # Store results now.
-            if storeResults:
-                totalRemainingPoints = NUM_POINT - counter
-                storeAmountOfPointsRemoved(totalRemainingPoints)
-            
-        residualPCArr = np.concatenate((residualPCArr, pointclouds_pl_adv), axis=1)
+#         residualPCArr = np.concatenate((residualPCArr, pointclouds_pl_adv[0]), axis=1)
+        residualPCArr.extend(pointclouds_pl_adv[0]) 
         
         
         # Stop profiling and show the results
+        endTime = time.time() - start_time
+        storeAmountOfUsedTime(endTime)
         cpr.stopProfiling(numResults=20)
         
-        print("POINTS DROPPED: ", (self.a * self.k))
+        print("POINTS DROPPED: ", counter)
         gch.draw_NewHeatcloud(residualPCArr, heatmap)
-#         gch.draw_pointcloud(pointclouds_pl_adv)
+        gch.draw_pointcloud(pointclouds_pl_adv)
         return pointclouds_pl_adv
     
     def plot_advsarial_samples(self, pointclouds_pl_adv, labels_pl, pred_val):
@@ -232,6 +279,7 @@ class SphereAttack():
                 
 
 def evaluate(num_votes):
+    global desiredClassLabel
     is_training = False
     num_drop, num_steps = FLAGS.num_drop, FLAGS.num_steps
     attack = SphereAttack(num_drop, num_steps)
@@ -279,8 +327,10 @@ def evaluate(num_votes):
         num_batches = file_size // BATCH_SIZE
         print(file_size)
         
-        for _ in range(1):
-            batchStart = findCorrectLabel( current_label )
+        for shapeIndex in range(1):
+#             desiredClassLabel = shapeIndex
+            
+            batchStart = findCorrectLabel(current_label,desiredClassLabel)
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart+1) * BATCH_SIZE
             cur_batch_size = end_idx - start_idx
@@ -294,20 +344,20 @@ def evaluate(num_votes):
             cur_batch_data_adv = attack.drop_points(current_data[start_idx:end_idx, :, :], 
                                                     current_label[start_idx:end_idx], sess)
             ## Natural data
-            for vote_idx in range(num_votes):
-                rotated_data = provider.rotate_point_cloud_by_angle(current_data[start_idx:end_idx, :, :],
-                                                  vote_idx/float(num_votes) * np.pi * 2)
-                feed_dict = {ops['pointclouds_pl']: rotated_data,
-                             ops['labels_pl']: current_label[start_idx:end_idx],
-                             ops['is_training_pl']: is_training}
-                loss_val, pred_val = sess.run([ops['loss'], ops['pred']],
-                                          feed_dict=feed_dict)
-                batch_pred_sum += pred_val
-                batch_pred_val = np.argmax(pred_val, 1)
-                for el_idx in range(cur_batch_size):
-                    batch_pred_classes[el_idx, batch_pred_val[el_idx]] += 1
-                batch_loss_sum += (loss_val * cur_batch_size / float(num_votes))
-            pred_val = np.argmax(batch_pred_sum, 1)
+#             for vote_idx in range(num_votes):
+#                 rotated_data = provider.rotate_point_cloud_by_angle(current_data[start_idx:end_idx, :, :],
+#                                                   vote_idx/float(num_votes) * np.pi * 2)
+#                 feed_dict = {ops['pointclouds_pl']: rotated_data,
+#                              ops['labels_pl']: current_label[start_idx:end_idx],
+#                              ops['is_training_pl']: is_training}
+#                 loss_val, pred_val = sess.run([ops['loss'], ops['pred']],
+#                                           feed_dict=feed_dict)
+#                 batch_pred_sum += pred_val
+#                 batch_pred_val = np.argmax(pred_val, 1)
+#                 for el_idx in range(cur_batch_size):
+#                     batch_pred_classes[el_idx, batch_pred_val[el_idx]] += 1
+#                 batch_loss_sum += (loss_val * cur_batch_size / float(num_votes))
+#             pred_val = np.argmax(batch_pred_sum, 1)
             
             ## Adversarial data
             
