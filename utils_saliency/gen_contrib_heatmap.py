@@ -56,9 +56,8 @@ def delete_max_point( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
     maxWeight = max(inputheatMap)
     delIndex = np.where(inputheatMap == maxWeight)
-    delPoint = locArr[0][delIndex]
     locArr = np.delete( locArr, delIndex, 1 )
-    return locArr, [delPoint, [maxWeight]], 1
+    return locArr, [locArr[0][delIndex], [maxWeight]], 1
 
 def delete_all_nonzeros( inputheatMap, inputArr ):
     locArr = copy.deepcopy( inputArr )
@@ -202,24 +201,24 @@ def draw_heatcloud( inpCloud, hitCheckArr, mode ):
     draw_geometries( [pcd] )
     
 def draw_NewHeatcloud( inputPCArray, inputWeightArray ):
-#     inputWeightArray = truncate_to_threshold( np.array(inputWeightArray), "+midrange" )
-    pColors = np.zeros( ( len( inputPCArray ), 3 ), dtype = float )
+    inputWeightArray = truncate_to_threshold( inputWeightArray, "+median" )
+    pColors = np.zeros( ( len( inputWeightArray ), 3 ), dtype = float )
     maxColVal = max( inputWeightArray )
-    for index in range( len( inputPCArray ) ):
+    for index in range( len( inputWeightArray ) ):
         try:
             curVal = inputWeightArray[index]
-            if curVal == 0:
+            if curVal == 0.0:
                 pColors[index] = [0, 0, 0]
             else:
                 red = curVal / maxColVal
                 green = 1 - ( curVal / maxColVal )
                 pColors[index] = [red, green, 0]
         except:
-#             print( "INVALID VALUE FOR INDEX: ", index )
+            print( "INVALID VALUE FOR INDEX: ", index )
             pColors[index] = [0, 0, 0]
 
     pcd = PointCloud()
-    pcd.points = Vector3dVector( np.array(inputPCArray) )
+    pcd.points = Vector3dVector( inputPCArray[0] )
     pcd.colors = Vector3dVector( pColors )
     draw_geometries( [pcd] )
 
