@@ -24,12 +24,10 @@ import codeProfiler as cpr
 # ===============================================================================
 # Global variables to control program behavior
 # ===============================================================================
-usePreviousSession = True   # Set this to true to use a previously trained model.
-performTraining = False     # Set this to true to train the model. Set to false to only test the pretrained model.
-desiredLabel = 1            # The index of the class label the object should be tested against. It matches with the line numbers of the shapes.txt files e.g. line 1 = airplane etc.
-numTestRuns = 500           # Amount of tests for the current test label object.
-maxNumPoints = 2048         # How many points should be considered? [256/512/1024/2048] [default: 1024]
-storeResults = False        # Should the results of the algorithm be stored to files or not.
+desiredLabel = 1  # The index of the class label the object should be tested against. It matches with the line numbers of the shapes.txt files e.g. line 1 = airplane etc.
+numTestRuns = 500  # Amount of tests for the current test label object.
+maxNumPoints = 2048  # How many points should be considered? [256/512/1024/2048] [default: 1024]
+storeResults = False  # Should the results of the algorithm be stored to files or not.
 
 
 # ===============================================================================
@@ -98,10 +96,12 @@ def storeAmountOfUsedTime(usedTime):
     print("STORING FILES TO: ", filePath)
     tdh.writeResult(filePath, usedTime)
 
+
 # ------------------------------------------------------------------------------
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--desired_label', type=int, default=desiredLabel, help='The desired class label for the target shape. For example 1 for airplane, 2 for bathtub etc.')
+parser.add_argument('--desired_label', type=int, default=desiredLabel,
+                    help='The desired class label for the target shape. For example 1 for airplane, 2 for bathtub etc.')
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet_cls',
                     help='Model name: pointnet_cls or pointnet_cls_basic [default: pointnet_cls]')
@@ -155,10 +155,8 @@ BN_DECAY_CLIP = 0.99
 HOSTNAME = socket.gethostname()
 
 # ModelNet40 official train/test split
-TRAIN_FILES = provider.getDataFiles( \
-    os.path.join(BASE_DIR, 'data/modelnet40_ply_hdf5_2048/train_files.txt'))
-TEST_FILES = provider.getDataFiles( \
-    os.path.join(BASE_DIR, 'data/modelnet40_ply_hdf5_2048/test_files.txt'))
+TRAIN_FILES = provider.getDataFiles(os.path.join(BASE_DIR, 'data/modelnet40_ply_hdf5_2048/train_files.txt'))
+TEST_FILES = provider.getDataFiles(os.path.join(BASE_DIR, 'data/modelnet40_ply_hdf5_2048/test_files.txt'))
 
 
 def log_string(out_str):
@@ -313,7 +311,7 @@ class AdversialPointCloud():
             vipPcPointsArr.extend(vipPointsArr[0])
             weightArray.extend(vipPointsArr[1])
             pcTempResult = copy.deepcopy(resultPCloudThresh)
-            
+
         # Stop profiling and show the results
         endTime = time.time() - start_time
         storeAmountOfUsedTime(endTime)
@@ -324,9 +322,9 @@ class AdversialPointCloud():
         print("TOTAL REMOVED POINTS: ", totalRemoved)
         print("TOTAL REMAINING POINTS: ", NUM_POINT - totalRemoved)
         #         gch.draw_pointcloud(pcTempResult) #-- Residual point cloud
-        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray) #-- Important points only
-        #         vipPcPointsArr.extend(pcTempResult[0])
-        #         gch.draw_NewHeatcloud(vipPcPointsArr, weightArray) #--All points combined
+        #         gch.draw_NewHeatcloud(vipPcPointsArr, weightArray) #-- Important points only
+        vipPcPointsArr.extend(pcTempResult[0])
+        gch.draw_NewHeatcloud(vipPcPointsArr, weightArray)  # --All points combined
         return delCount
 
 
@@ -382,7 +380,7 @@ def evaluate():
 
         # This loop is left in case a larger test set should be iterated over
         for shapeIndex in range(1):
-#             desiredClassLabel = shapeIndex
+            #             desiredClassLabel = shapeIndex
             batchStart = findCorrectLabel(current_label, desiredClassLabel)
             start_idx = batchStart * BATCH_SIZE
             end_idx = (batchStart + 1) * BATCH_SIZE
@@ -395,14 +393,14 @@ def evaluate():
             # ===================================================================
             # Max pooling
             # ===================================================================
-#             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
-#             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
-#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
-#             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
-#                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
+            #             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+            #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "nonzero" )
+            #             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+            #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "zero" )
+            #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+            #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+average" )
+            #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
+            #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+median" )
             adversarial_attack.drop_and_store_results(current_data[start_idx:end_idx, :, :],
                                                       current_label[start_idx:end_idx], sess, "maxpooling", "+midrange")
 
@@ -417,9 +415,9 @@ def evaluate():
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "+random", deletCountnZero )
 #             adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "maxpooling", "-random", deletCountZero )
-            # ===================================================================
-            # Average pooling
-            # ===================================================================
+# ===================================================================
+# Average pooling
+# ===================================================================
 #             deletCountnZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
 #                                                     current_label[start_idx:end_idx], sess, "avgpooling", "nonzero" )
 #             deletCountZero = adversarial_attack.drop_and_store_results( current_data[start_idx:end_idx, :, :],
@@ -443,6 +441,6 @@ def evaluate():
 
 if __name__ == "__main__":
     with tf.Graph().as_default():
-        with tf.device( '/gpu:' + str( GPU_INDEX ) ):
+        with tf.device('/gpu:' + str(GPU_INDEX)):
             evaluate()
     LOG_FOUT.close()
