@@ -1,3 +1,4 @@
+[![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
 # Master Thesis - Pointcloud grad-CAM
 
 This is the repository for the pointcloud based grad-CAM, which was originally inspired by the **Gradient Class Activation Mapping (Grad-CAM)[[1]]** approach. It was implemented by utlizing the **pointnet**[[2]] network.
