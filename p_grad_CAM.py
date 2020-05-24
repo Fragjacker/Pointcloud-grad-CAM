@@ -13,9 +13,6 @@ sys.path.append(os.path.join(BASE_DIR, 'models'))
 sys.path.append(os.path.join(BASE_DIR, 'utils'))
 sys.path.append(os.path.join(BASE_DIR, 'shared_functions'))
 import provider
-import matplotlib as mpl
-
-mpl.use('pdf')
 from help_functions import getShapeName, findCorrectLabel, getPrediction
 import gen_contrib_heatmap as gch
 import test_data_handler as tdh

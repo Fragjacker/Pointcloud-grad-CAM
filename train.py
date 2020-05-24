@@ -16,8 +16,6 @@ sys.path.append(os.path.join(BASE_DIR, 'utils'))
 # Global variables to control program behavior
 # ===============================================================================
 usePreviousSession = True  # --Set this to true to use a previously trained model.
-performTraining = False  # --Set this to true to train the model. Set to false to only test the pretrained model.
-desiredClassLabel = 24  # --The index of the class label the object should be tested against.
 
 
 # ===============================================================================
