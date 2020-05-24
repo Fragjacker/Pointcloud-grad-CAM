@@ -11,9 +11,9 @@ We seek to achieve this transparency by finding the salient regions of the input
 
 ## Installation and Usage
 
-To run the the code Python 3.5[[5]] or better and Anaconda[[6]] is required. It can be installed as follows:
+To run the the code Python 3.5[[5]] or better and Anaconda[[6]] is required. To use this algorithm follow the next steps:
 
-1. Install Anaconda for Python 3 on your system
+1. Install Anaconda[[6]] for Python 3.5[[5]] on your system.
 
 2. Open the Anaconda prompt and `cd` into the cloned repo directory.
 
