@@ -1,7 +1,7 @@
 [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/) [![Python badge](https://img.shields.io/badge/Python-3.5-<COLOR>.svg)](https://shields.io/) [![Platform badge](https://img.shields.io/badge/Platform-Windows_10_x64-<COLOR>.svg)](https://shields.io/)
 # Pointcloud grad-CAM
 
-This is the repository for **pointcloud grad-CAM (p-grad-CAM)**, which was originally inspired by the **Gradient Class Activation Mapping (Grad-CAM)[[1]]** approach. It was implemented utlizing the **Pointnet**[[2]] network and **Tensorflow**. For testing the validity of our approach it was compared to a similar algorithm, called **Saliency Maps**[[7]]. This algorithm was slightly rewritten to fit our testing environent and was renamed **ASM**, it is also included in this repository.
+This is the repository for **pointcloud grad-CAM (p-grad-CAM)[[8]]**, which was originally inspired by the **Gradient Class Activation Mapping (Grad-CAM)[[1]]** approach. It was implemented utlizing the **Pointnet**[[2]] network and **Tensorflow**. For testing the validity of our approach it was compared to a similar algorithm, called **Saliency Maps**[[7]]. This algorithm was slightly rewritten to fit our testing environent and was renamed **ASM**, it is also included in this repository.
 
 The goal of this application is to yield a similar grade of transparency for pointcloud neuronal networks as grad-CAM does for 2D image convolutional neuronal networks (CNN). Usually the user is granted no deeper insight as of why a current input yields a particular results delivered by the network. This is particularly an issue if the output does not yield the expected result. In order to increase the confidence and trust in the performance of neuronal networks it is of virtue to be able to understand the reasoning behind the networks decisions.
 
@@ -35,6 +35,9 @@ To run the the code Python 3.5[[5]] or better and Anaconda[[6]] is required. To 
 
 ## References
 
+**[Identifying salient regions using point cloud gradient Class Activation Mapping][8]**  
+Dennis Struhs
+
 **[Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization][1]**  
 Ramprasaath R. Selvaraju, Abhishek Das, Ramakrishna Vedantam, Michael Cogswell, Devi Parikh, Dhruv Batra  
 [https://arxiv.org/abs/1610.02391][1]
@@ -63,3 +66,4 @@ Tianhang Zheng, Changyou Chen, Junsong Yuan, Kui Ren
 [5]: https://www.python.org/downloads/
 [6]: https://www.anaconda.com/products/individual
 [7]: http://arxiv.org/abs/1812.01687
+[8]: https://github.com/Fragjacker/Pointcloud-grad-CAM/files/5371140/Master_Thesis_paper___p-grad-CAM.pdf
